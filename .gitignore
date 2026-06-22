@@ -1,0 +1,8 @@
+tmp/
+Rplots.pdf
+tests/testthat/Rplots.pdf
+demo_output/*.tsv
+demo_output/*_patchwork_code.R
+demo_output/*_warnings.txt
+demo_output/*.png
+!demo_output/*.pdf

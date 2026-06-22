@@ -1,0 +1,21 @@
+Package: shrink
+Type: Package
+Title: Automatic ggplot Layouts for PDF and Patchwork Output
+Version: 0.1.0
+Authors@R: person("Jonathan", "Froehlich", role = c("aut", "cre"), email = "jonathan@example.com")
+Description: Suggests readable layouts for lists of ggplot objects using device-aware measurements, continuous fit losses, row/column weight optimization, optional multipage splitting, editable patchwork code, and exact grid-based PDF drawing.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports:
+    ggplot2,
+    patchwork,
+    grid,
+    gtable,
+    stats,
+    utils,
+    grDevices
+Suggests:
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3

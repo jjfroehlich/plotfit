@@ -1,0 +1,5 @@
+^scripts$
+^demo_output$
+^tmp$
+^Rplots\.pdf$
+^tests/testthat/Rplots\.pdf$
