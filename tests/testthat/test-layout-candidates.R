@@ -6,16 +6,16 @@ test_that("generated layout candidates are rectangular and include all plots", {
     p3 = list(preferred_width_mm = 90, preferred_height_mm = 60, min_acceptable_area_mm2 = 5400)
   )
 
-  layouts <- patchworkLayoutOptimizer:::generate_equal_grid_layouts(plot_ids, max_grid_cols = 3, max_grid_rows = 3)
+  layouts <- plotfit:::generate_equal_grid_layouts(plot_ids, max_grid_cols = 3, max_grid_rows = 3)
   layouts <- c(
     layouts,
-    patchworkLayoutOptimizer:::generate_row_band_layouts(plot_ids, frontiers, 4, 4, TRUE),
-    patchworkLayoutOptimizer:::generate_one_large_plot_layouts(plot_ids, frontiers, 4, 4)
+    plotfit:::generate_row_band_layouts(plot_ids, frontiers, 4, 4, TRUE),
+    plotfit:::generate_one_large_plot_layouts(plot_ids, frontiers, 4, 4)
   )
 
   expect_gt(length(layouts), 0)
   expect_true(all(vapply(layouts, function(page) {
-    patchworkLayoutOptimizer:::validate_rectangular_design(page$layout_matrix) &&
+    plotfit:::validate_rectangular_design(page$layout_matrix) &&
       setequal(page$areas$plot_id, plot_ids)
   }, logical(1))))
 })
@@ -33,7 +33,7 @@ test_that("overfit compact spacer layout is not generated for eight plot page", 
   names(frontiers) <- plot_ids
   frontiers$p6$geometry$is_faceted_scatter <- TRUE
 
-  layouts <- patchworkLayoutOptimizer:::generate_compact_spacer_layouts(
+  layouts <- plotfit:::generate_compact_spacer_layouts(
     plot_ids = plot_ids,
     frontiers = frontiers,
     max_grid_cols = 10,
@@ -56,7 +56,7 @@ test_that("overfit scaled report layout is not generated for eight plot page", {
   names(frontiers) <- plot_ids
   frontiers$p6$geometry$is_faceted_scatter <- TRUE
 
-  layouts <- patchworkLayoutOptimizer:::generate_scaled_report_layouts(
+  layouts <- plotfit:::generate_scaled_report_layouts(
     plot_ids = plot_ids,
     frontiers = frontiers,
     max_grid_cols = 20,

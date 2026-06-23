@@ -1,8 +1,8 @@
-# shrink
+# plotfit
 
 Automatic layout optimization for multi-plot ggplot PDF reports.
 
-`shrink` measures ggplot objects on a target-like PDF device,
+`plotfit` measures ggplot objects on a target-like PDF device,
 infers how much physical space each plot needs, searches page layouts, and
 returns drawable pages plus diagnostics. It is useful when a report contains a
 mix of simple plots, long labels, facets, legends, dense data, and fixed-aspect
@@ -29,7 +29,7 @@ From a local checkout:
 
 ```r
 install.packages("remotes")
-remotes::install_local("D:/code/local/patchwork-shrink")
+remotes::install_local("D:/code/r/plotfit")
 ```
 
 Or, from inside the project directory:
@@ -41,13 +41,19 @@ remotes::install_local(".")
 After the package is published on GitHub, install it with:
 
 ```r
-remotes::install_github("https://github.com/jjfroehlich/patchwork-shrink")
+remotes::install_github("jjfroehlich/plotfit")
 ```
 
 For quick development without installing, source the files directly as shown
 below.
 
 ## Basic Usage
+
+Load the installed package:
+
+```r
+library(plotfit)
+```
 
 Source the package files during local development:
 

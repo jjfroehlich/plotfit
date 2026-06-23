@@ -1,17 +1,17 @@
 test_that("fit loss increases when allocated panel space is too small", {
-  device_state <- patchworkLayoutOptimizer:::open_measurement_device(
+  device_state <- plotfit:::open_measurement_device(
     device = "pdf",
     width_in = 8.27,
     height_in = 11.69,
     base_family = "Helvetica",
     base_size = 7
   )
-  on.exit(patchworkLayoutOptimizer:::close_measurement_device(device_state), add = TRUE)
+  on.exit(plotfit:::close_measurement_device(device_state), add = TRUE)
 
   plot <- ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) +
     ggplot2::geom_point()
 
-  preferences <- patchworkLayoutOptimizer:::validate_layout_inputs(
+  preferences <- plotfit:::validate_layout_inputs(
     page_width_in = 8.27,
     page_height_in = 11.69,
     page_margin_mm = 0,
@@ -32,7 +32,7 @@ test_that("fit loss increases when allocated panel space is too small", {
     output_style = "design"
   )
   page_spec <- list(width_mm = 8.27 * 25.4, height_mm = 11.69 * 25.4)
-  profile <- patchworkLayoutOptimizer:::measure_plot_profile(
+  profile <- plotfit:::measure_plot_profile(
     plot = plot,
     plot_id = "p1",
     plot_index = 1,
@@ -40,8 +40,8 @@ test_that("fit loss increases when allocated panel space is too small", {
     measurement_spec = list(base_size = 7, base_family = "Helvetica")
   )
 
-  small_fit <- patchworkLayoutOptimizer:::evaluate_plot_fit(profile, 20, 20, preferences)
-  large_fit <- patchworkLayoutOptimizer:::evaluate_plot_fit(profile, 90, 70, preferences)
+  small_fit <- plotfit:::evaluate_plot_fit(profile, 20, 20, preferences)
+  large_fit <- plotfit:::evaluate_plot_fit(profile, 90, 70, preferences)
 
   expect_gt(small_fit$total_loss, large_fit$total_loss)
   expect_gt(small_fit$hard_violation_mm, 0)
@@ -53,12 +53,12 @@ test_that("effective panel size reports wasted area for fixed-aspect panels", {
     page = list(width_mm = 100, height_mm = 100)
   )
 
-  tall_panel <- patchworkLayoutOptimizer:::estimate_effective_panel_size(
+  tall_panel <- plotfit:::estimate_effective_panel_size(
     profile = profile,
     panel_width_mm = 40,
     panel_height_mm = 100
   )
-  square_panel <- patchworkLayoutOptimizer:::estimate_effective_panel_size(
+  square_panel <- plotfit:::estimate_effective_panel_size(
     profile = profile,
     panel_width_mm = 40,
     panel_height_mm = 40
@@ -71,18 +71,18 @@ test_that("effective panel size reports wasted area for fixed-aspect panels", {
 })
 
 test_that("gtable sizing resolves panel area at an allocated physical size", {
-  device_state <- patchworkLayoutOptimizer:::open_measurement_device(
+  device_state <- plotfit:::open_measurement_device(
     device = "pdf",
     width_in = 8.27,
     height_in = 11.69,
     base_family = "Helvetica",
     base_size = 7
   )
-  on.exit(patchworkLayoutOptimizer:::close_measurement_device(device_state), add = TRUE)
+  on.exit(plotfit:::close_measurement_device(device_state), add = TRUE)
 
   plot <- ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) +
     ggplot2::geom_point()
-  profile <- patchworkLayoutOptimizer:::measure_plot_profile(
+  profile <- plotfit:::measure_plot_profile(
     plot = plot,
     plot_id = "p1",
     plot_index = 1,
@@ -90,7 +90,7 @@ test_that("gtable sizing resolves panel area at an allocated physical size", {
     measurement_spec = list(base_size = 7, base_family = "Helvetica")
   )
 
-  measured <- patchworkLayoutOptimizer:::measure_plot_at_size(profile, 80, 50)
+  measured <- plotfit:::measure_plot_at_size(profile, 80, 50)
 
   expect_equal(measured$width_mm, 80)
   expect_equal(measured$height_mm, 50)
@@ -114,14 +114,14 @@ test_that("axis gap estimation uses neighbouring label positions", {
     soft_excess_gap_penalty = 0.01
   )
 
-  even_gap <- patchworkLayoutOptimizer:::estimate_one_axis_gap(
+  even_gap <- plotfit:::estimate_one_axis_gap(
     axis_labels = axis_labels,
     axis_positions = list(positions = c(0, 0.5, 1), fallback = FALSE),
     available_mm = 100,
     axis = "x",
     preferences = preferences
   )
-  crowded_gap <- patchworkLayoutOptimizer:::estimate_one_axis_gap(
+  crowded_gap <- plotfit:::estimate_one_axis_gap(
     axis_labels = axis_labels,
     axis_positions = list(positions = c(0, 0.05, 1), fallback = FALSE),
     available_mm = 100,

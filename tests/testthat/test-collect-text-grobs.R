@@ -1,12 +1,12 @@
 test_that("text grobs are collected recursively", {
-  device_state <- patchworkLayoutOptimizer:::open_measurement_device(
+  device_state <- plotfit:::open_measurement_device(
     device = "pdf",
     width_in = 8.27,
     height_in = 11.69,
     base_family = "Helvetica",
     base_size = 7
   )
-  on.exit(patchworkLayoutOptimizer:::close_measurement_device(device_state), add = TRUE)
+  on.exit(plotfit:::close_measurement_device(device_state), add = TRUE)
 
   nested_grob <- grid::gTree(
     children = grid::gList(
@@ -15,7 +15,7 @@ test_that("text grobs are collected recursively", {
     )
   )
 
-  text_grobs <- patchworkLayoutOptimizer:::collect_text_grobs(
+  text_grobs <- plotfit:::collect_text_grobs(
     nested_grob,
     component_type = "axis_b",
     component_name = "axis-b"

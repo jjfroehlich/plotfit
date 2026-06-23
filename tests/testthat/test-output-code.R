@@ -4,13 +4,13 @@ test_that("patchwork output includes a printable object and editable code", {
     p2 = ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) + ggplot2::geom_boxplot()
   )
   layout_matrix <- rbind(c("1", "2"))
-  page <- patchworkLayoutOptimizer:::make_layout_page(names(plots), layout_matrix)
+  page <- plotfit:::make_layout_page(names(plots), layout_matrix)
   page$widths <- c(1.2, 0.8)
   page$heights <- 1
   page$score <- 0
   page$diagnostics <- data.frame()
 
-  pages <- patchworkLayoutOptimizer:::build_patchwork_pages(
+  pages <- plotfit:::build_patchwork_pages(
     best_candidate = list(pages = list(page)),
     plots = plots,
     output_style = "design",
@@ -29,7 +29,7 @@ test_that("grid output includes a drawable grob and physical dimensions", {
     p2 = ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) + ggplot2::geom_boxplot()
   )
   layout_matrix <- rbind(c("1", "2"))
-  page <- patchworkLayoutOptimizer:::make_layout_page(names(plots), layout_matrix)
+  page <- plotfit:::make_layout_page(names(plots), layout_matrix)
   page$widths <- c(1.2, 0.8)
   page$heights <- 1
   page$col_widths_mm <- c(72, 48)
@@ -37,7 +37,7 @@ test_that("grid output includes a drawable grob and physical dimensions", {
   page$score <- 0
   page$diagnostics <- data.frame()
 
-  pages <- patchworkLayoutOptimizer:::build_layout_pages(
+  pages <- plotfit:::build_layout_pages(
     best_candidate = list(pages = list(page)),
     plots = plots,
     output_style = "design",
@@ -53,7 +53,7 @@ test_that("grid output includes a drawable grob and physical dimensions", {
   expect_equal(pages[[1]]$engine, "grid")
   expect_equal(pages[[1]]$col_widths_mm, c(72, 48))
   expect_equal(pages[[1]]$content_width_mm, 120)
-  expect_invisible(patchworkLayoutOptimizer::draw_layout_pages(pages))
+  expect_invisible(plotfit::draw_layout_pages(pages))
 })
 
 test_that("grid output applies automatic inner footprints as physical viewports", {
@@ -63,7 +63,7 @@ test_that("grid output applies automatic inner footprints as physical viewports"
       ggplot2::theme(aspect.ratio = 1)
   )
   layout_matrix <- matrix("1", nrow = 1, ncol = 1)
-  page <- patchworkLayoutOptimizer:::make_layout_page(names(plots), layout_matrix)
+  page <- plotfit:::make_layout_page(names(plots), layout_matrix)
   page$widths <- 1
   page$heights <- 1
   page$col_widths_mm <- 100
@@ -79,7 +79,7 @@ test_that("grid output applies automatic inner footprints as physical viewports"
     stringsAsFactors = FALSE
   )
 
-  pages <- patchworkLayoutOptimizer:::build_layout_pages(
+  pages <- plotfit:::build_layout_pages(
     best_candidate = list(pages = list(page)),
     plots = plots,
     output_style = "design",
@@ -114,7 +114,7 @@ test_that("inner plot scale is inferred from measured selected footprint", {
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_measured_inner_plot_scale(diagnostic)
+  scale <- plotfit:::infer_measured_inner_plot_scale(diagnostic)
 
   expect_equal(scale$scale_x, 0.6)
   expect_equal(scale$scale_y, 1)
@@ -133,7 +133,7 @@ test_that("hard violations disable inner shrinking", {
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(plot, diagnostic)
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
   expect_equal(scale$scale_x, 1)
   expect_equal(scale$scale_y, 1)
@@ -152,7 +152,7 @@ test_that("structural compactness caps measured inner scaling", {
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(plot, diagnostic)
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
   expect_equal(scale$scale_x, 0.5)
   expect_equal(scale$scale_y, 0.5)
@@ -174,8 +174,8 @@ test_that("facets and rotated labels add general axis-specific compactness caps"
     stringsAsFactors = FALSE
   )
 
-  facet_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(faceted, diagnostic)
-  rotated_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(rotated, diagnostic)
+  facet_scale <- plotfit:::infer_inner_plot_scale(faceted, diagnostic)
+  rotated_scale <- plotfit:::infer_inner_plot_scale(rotated, diagnostic)
 
   expect_equal(facet_scale$scale_x, 0.8)
   expect_equal(facet_scale$scale_y, 2 / 3)
@@ -198,8 +198,8 @@ test_that("faceted count plots and line plots get compact general footprints", {
     stringsAsFactors = FALSE
   )
 
-  facet_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(faceted_histogram, diagnostic)
-  line_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(line_plot, diagnostic)
+  facet_scale <- plotfit:::infer_inner_plot_scale(faceted_histogram, diagnostic)
+  line_scale <- plotfit:::infer_inner_plot_scale(line_plot, diagnostic)
 
   expect_equal(facet_scale$scale_x, 2 / 3)
   expect_equal(facet_scale$scale_y, 0.5)
@@ -220,7 +220,7 @@ test_that("simple fixed-aspect plots get compacted in both dimensions", {
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(plot, diagnostic)
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
   expect_equal(scale$scale_x, 2 / 3)
   expect_equal(scale$scale_y, 0.5)
@@ -239,7 +239,7 @@ test_that("right-side legends do not trigger the strongest fixed-aspect compactn
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(plot, diagnostic)
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
   expect_equal(scale$scale_x, 2 / 3)
   expect_equal(scale$scale_y, 2 / 3)
@@ -258,7 +258,7 @@ test_that("bottom legends on fixed-aspect plots keep a readable compact footprin
     stringsAsFactors = FALSE
   )
 
-  scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(plot, diagnostic)
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
   expect_equal(scale$scale_x, 0.5)
   expect_equal(scale$scale_y, 0.5)
@@ -284,8 +284,8 @@ test_that("low-aspect diagnostics get width caps based on density pressure", {
   dense_diagnostic <- diagnostic
   dense_diagnostic$data_density_loss <- 1
 
-  simple_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(simple, diagnostic)
-  dense_scale <- patchworkLayoutOptimizer:::infer_inner_plot_scale(dense, dense_diagnostic)
+  simple_scale <- plotfit:::infer_inner_plot_scale(simple, diagnostic)
+  dense_scale <- plotfit:::infer_inner_plot_scale(dense, dense_diagnostic)
 
   expect_equal(simple_scale$scale_x, 0.5)
   expect_equal(simple_scale$scale_y, 1)

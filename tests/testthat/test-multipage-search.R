@@ -40,7 +40,7 @@ test_that("multipage search can beat a violating one-page layout", {
     uneven_weight_penalty = 0.01
   )
 
-  selected <- patchworkLayoutOptimizer:::select_best_solution(
+  selected <- plotfit:::select_best_solution(
     plot_ids = plot_ids,
     frontiers = frontiers,
     fit_functions = fit_functions,
@@ -100,7 +100,7 @@ test_that("multipage search can beat a wasteful one-page layout", {
     compact_spacer_bonus = 0
   )
 
-  selected <- patchworkLayoutOptimizer:::select_best_solution(
+  selected <- plotfit:::select_best_solution(
     plot_ids = plot_ids,
     frontiers = frontiers,
     fit_functions = fit_functions,
@@ -154,7 +154,7 @@ test_that("one-page search wins when plots fit cleanly", {
     compact_spacer_bonus = 0
   )
 
-  selected <- patchworkLayoutOptimizer:::select_best_solution(
+  selected <- plotfit:::select_best_solution(
     plot_ids = plot_ids,
     frontiers = frontiers,
     fit_functions = fit_functions,

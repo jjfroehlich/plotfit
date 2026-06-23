@@ -1,4 +1,4 @@
 library(testthat)
-library(patchworkLayoutOptimizer)
+library(plotfit)
 
-test_check("patchworkLayoutOptimizer")
+test_check("plotfit")

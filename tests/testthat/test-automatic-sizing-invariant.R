@@ -111,8 +111,8 @@ test_that("automatic inner scaling is independent of plot names and order", {
     stringsAsFactors = FALSE
   )
 
-  scales_a <- patchworkLayoutOptimizer:::infer_inner_plot_scales(plots_a, diagnostics_a)
-  scales_b <- patchworkLayoutOptimizer:::infer_inner_plot_scales(plots_b, diagnostics_b)
+  scales_a <- plotfit:::infer_inner_plot_scales(plots_a, diagnostics_a)
+  scales_b <- plotfit:::infer_inner_plot_scales(plots_b, diagnostics_b)
 
   fixed_a <- scales_a[scales_a$plot_id == "p1_iris_scatter", c("scale_x", "scale_y")]
   fixed_b <- scales_b[scales_b$plot_id == "renamed_first", c("scale_x", "scale_y")]

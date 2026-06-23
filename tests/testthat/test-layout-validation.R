@@ -10,6 +10,6 @@ test_that("rectangular design validation accepts and rejects expected matrices",
     c("1", "2", "2")
   )
 
-  expect_true(patchworkLayoutOptimizer:::validate_rectangular_design(valid_matrix))
-  expect_false(patchworkLayoutOptimizer:::validate_rectangular_design(invalid_matrix))
+  expect_true(plotfit:::validate_rectangular_design(valid_matrix))
+  expect_false(plotfit:::validate_rectangular_design(invalid_matrix))
 })

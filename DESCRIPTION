@@ -1,4 +1,4 @@
-Package: shrink
+Package: plotfit
 Type: Package
 Title: Automatic ggplot Layouts for PDF and Patchwork Output
 Version: 0.1.0
