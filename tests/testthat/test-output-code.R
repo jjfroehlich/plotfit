@@ -23,7 +23,7 @@ test_that("patchwork output includes a printable object and editable code", {
   expect_match(pages[[1]]$patchwork_code, "widths = c")
 })
 
-test_that("grid output includes a drawable grob and physical dimensions", {
+test_that("grid output includes a drawable grob, physical dimensions, and editable patchwork artifacts", {
   plots <- list(
     p1 = ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) + ggplot2::geom_point(),
     p2 = ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) + ggplot2::geom_boxplot()
@@ -49,6 +49,8 @@ test_that("grid output includes a drawable grob and physical dimensions", {
   )
 
   expect_s3_class(pages[[1]]$patchwork, "patchwork")
+  expect_type(pages[[1]]$patchwork_code, "character")
+  expect_gt(nchar(pages[[1]]$patchwork_code), 0)
   expect_match(pages[[1]]$patchwork_code, "patchwork::wrap_plots")
   expect_s3_class(pages[[1]]$grob, "grob")
   expect_equal(pages[[1]]$engine, "grid")
