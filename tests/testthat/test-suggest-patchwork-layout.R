@@ -1,4 +1,4 @@
-test_that("suggest_patchwork_layout returns pages, diagnostics, and assumptions", {
+test_that("suggest_patchwork_layout defaults to patchwork output with editable artifacts", {
   plots <- list(
     p1 = ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) + ggplot2::geom_point(),
     p2 = ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) + ggplot2::geom_boxplot()
@@ -14,17 +14,20 @@ test_that("suggest_patchwork_layout returns pages, diagnostics, and assumptions"
   )
 
   expect_gt(length(result$pages), 0)
+  expect_equal(result$assumptions$layout_engine, "patchwork")
   expect_s3_class(result$pages[[1]]$patchwork, "patchwork")
+  expect_false(is.null(result$pages[[1]]$patchwork))
   expect_equal(nrow(result$plot_diagnostics), 2)
   expect_true(result$assumptions$allow_multipage)
-  expect_equal(result$assumptions$layout_engine, "patchwork")
   expect_equal(result$assumptions$validation_level, "layout")
   expect_true(is.numeric(result$pages[[1]]$col_widths_mm))
   expect_true(is.numeric(result$pages[[1]]$row_heights_mm))
+  expect_type(result$pages[[1]]$patchwork_code, "character")
+  expect_gt(nchar(result$pages[[1]]$patchwork_code), 0)
   expect_match(result$pages[[1]]$patchwork_code, "combined_plot")
 })
 
-test_that("suggest_patchwork_layout can return grid pages", {
+test_that("suggest_patchwork_layout grid pages keep editable patchwork artifacts", {
   plots <- list(
     p1 = ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) + ggplot2::geom_point(),
     p2 = ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) + ggplot2::geom_boxplot()
@@ -40,8 +43,12 @@ test_that("suggest_patchwork_layout can return grid pages", {
     verbose = FALSE
   )
 
+  expect_equal(result$assumptions$layout_engine, "grid")
   expect_equal(result$pages[[1]]$engine, "grid")
-  expect_null(result$pages[[1]]$patchwork)
+  expect_s3_class(result$pages[[1]]$patchwork, "patchwork")
+  expect_false(is.null(result$pages[[1]]$patchwork))
+  expect_type(result$pages[[1]]$patchwork_code, "character")
+  expect_gt(nchar(result$pages[[1]]$patchwork_code), 0)
   expect_s3_class(result$pages[[1]]$grob, "grob")
   expect_equal(nrow(result$plot_diagnostics), 2)
 })
