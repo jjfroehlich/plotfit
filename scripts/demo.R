@@ -592,9 +592,20 @@ write_readme_comparison_image <- function(
     text_size) {
 
   if (is.null(optimized_result$pages) ||
-      length(optimized_result$pages) == 0 ||
-      !identical(optimized_result$pages[[1]]$engine, "grid") ||
-      is.null(optimized_result$pages[[1]]$grob)) {
+      length(optimized_result$pages) == 0) {
+    return(NA_character_)
+  }
+
+  optimized_page <- optimized_result$pages[[1]]
+  optimized_grob <- if (identical(optimized_page$engine, "grid") && !is.null(optimized_page$grob)) {
+    optimized_page$grob
+  } else if (identical(optimized_page$engine, "patchwork") && !is.null(optimized_page$patchwork)) {
+    patchwork::patchworkGrob(optimized_page$patchwork)
+  } else {
+    NULL
+  }
+
+  if (is.null(optimized_grob)) {
     return(NA_character_)
   }
 
@@ -654,7 +665,7 @@ write_readme_comparison_image <- function(
     just = c("left", "bottom"),
     clip = "on"
   ))
-  grid::grid.draw(optimized_result$pages[[1]]$grob)
+  grid::grid.draw(optimized_grob)
   grid::popViewport()
 
   message("README comparison image written to: ", output_file)
@@ -679,7 +690,7 @@ run_demo <- function(
     scenarios = "all",
     project_dir = canonical_project_dir,
     output_dir = file.path(project_dir, "demo_output"),
-    layout_engine = "grid",
+    layout_engine = "patchwork",
     diagnostics = FALSE,
     text_size = 7,
     page_width_in = 8.27,
@@ -749,7 +760,7 @@ run_demo <- function(
   }
 
   readme_image <- NA_character_
-  if ("generalization" %in% names(results) && identical(layout_engine, "grid")) {
+  if ("generalization" %in% names(results)) {
     readme_image <- write_readme_comparison_image(
       plots = plot_sets$generalization,
       optimized_result = results$generalization,
@@ -766,7 +777,7 @@ run_demo <- function(
 parse_demo_args <- function(args = commandArgs(trailingOnly = TRUE)) {
   scenario <- "all"
   output_dir <- NULL
-  layout_engine <- "grid"
+  layout_engine <- "patchwork"
   diagnostics <- FALSE
 
   for (arg in args) {
