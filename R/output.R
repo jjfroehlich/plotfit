@@ -88,7 +88,7 @@ build_layout_pages <- function(
       content_height_mm = page_spec$height_mm,
       engine = layout_engine,
       inner_scales = plot_scales,
-      patchwork = if (layout_engine == "patchwork") patchwork_object else NULL,
+      patchwork = patchwork_object,
       grob = grid_grob,
       patchwork_code = patchwork_code,
       score = page$score,

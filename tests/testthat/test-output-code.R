@@ -48,7 +48,8 @@ test_that("grid output includes a drawable grob and physical dimensions", {
     preferences = list(page_margin_mm = 5)
   )
 
-  expect_null(pages[[1]]$patchwork)
+  expect_s3_class(pages[[1]]$patchwork, "patchwork")
+  expect_match(pages[[1]]$patchwork_code, "patchwork::wrap_plots")
   expect_s3_class(pages[[1]]$grob, "grob")
   expect_equal(pages[[1]]$engine, "grid")
   expect_equal(pages[[1]]$col_widths_mm, c(72, 48))
