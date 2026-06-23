@@ -52,6 +52,13 @@ Prefer public ggplot2, grid, gtable, and patchwork APIs. Avoid package
 internals unless there is no viable public alternative and the reason is
 documented in code.
 
+`plotfit` should remain an editable patchwork layout suggestor. The optimizer
+should produce patchwork layouts and generated patchwork code that users can
+copy into their own scripts and manually adjust afterward. Grid rendering may
+remain available for visual validation or exact previewing, but it should not
+displace editable patchwork output as the primary user-facing suggestion
+workflow.
+
 ## Repo Shape
 
 Keep one package, one demo script, and one README:
