@@ -41,7 +41,8 @@ test_that("suggest_patchwork_layout can return grid pages", {
   )
 
   expect_equal(result$pages[[1]]$engine, "grid")
-  expect_null(result$pages[[1]]$patchwork)
+  expect_s3_class(result$pages[[1]]$patchwork, "patchwork")
+  expect_true(nzchar(result$pages[[1]]$patchwork_code))
   expect_s3_class(result$pages[[1]]$grob, "grob")
   expect_equal(nrow(result$plot_diagnostics), 2)
 })
