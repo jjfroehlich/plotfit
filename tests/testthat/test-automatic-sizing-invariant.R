@@ -36,6 +36,23 @@ test_that("unified demo script exposes the expected automatic scenarios", {
   expect_match(runner_source, "readme-layout-comparison.png", fixed = TRUE)
 })
 
+
+test_that("demo defaults to patchwork while preserving grid review option", {
+  runner_file <- file.path("scripts", "demo.R")
+  if (!file.exists(runner_file)) {
+    runner_file <- file.path("..", "..", "scripts", "demo.R")
+  }
+  skip_if_not(file.exists(runner_file))
+
+  runner_source <- paste(readLines(runner_file, warn = FALSE), collapse = "\n")
+
+  expect_match(runner_source, "run_demo <- function", fixed = TRUE)
+  expect_match(runner_source, "layout_engine = \"patchwork\"", fixed = TRUE)
+  expect_match(runner_source, "layout_engine <- \"patchwork\"", fixed = TRUE)
+  expect_match(runner_source, "--layout-engine=", fixed = TRUE)
+  expect_match(runner_source, "patchwork::patchworkGrob(optimized_page$patchwork)", fixed = TRUE)
+})
+
 test_that("optimizer source contains no demo-specific plot sizing branches", {
   source_files <- list.files("R", pattern = "\\.R$", full.names = TRUE)
   if (length(source_files) == 0) {
