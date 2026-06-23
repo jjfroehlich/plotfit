@@ -4,9 +4,11 @@ Automatic layout optimization for multi-plot ggplot PDF reports.
 
 `plotfit` measures ggplot objects on a target-like PDF device,
 infers how much physical space each plot needs, searches page layouts, and
-returns drawable pages plus diagnostics. It is useful when a report contains a
-mix of simple plots, long labels, facets, legends, dense data, and fixed-aspect
-plots, and a plain equal grid wastes space or clips readable detail.
+returns suggested editable patchwork layouts, generated patchwork code for
+copy/paste into user scripts, drawable pages, and diagnostics. It is useful
+when a report contains a mix of simple plots, long labels, facets, legends,
+dense data, and fixed-aspect plots, and a plain equal grid wastes space or
+clips readable detail.
 
 ![Before and after layout comparison](man/figures/readme-layout-comparison.png)
 
@@ -16,7 +18,8 @@ plots, and a plain equal grid wastes space or clips readable detail.
 - Infers plot footprints automatically from grobs, axes, labels, legends,
   facets, aspect constraints, and density diagnostics.
 - Chooses one or more pages when multipage output improves readability.
-- Returns editable patchwork output and exact grid-based PDF output.
+- Suggests editable patchwork layouts and returns generated patchwork code
+  intended for copy/paste into user scripts.
 - Keeps the original plots unchanged.
 
 Users do not specify per-plot widths, heights, scale factors, or footprint
@@ -63,43 +66,51 @@ for (r_file in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) {
 }
 ```
 
-Then optimize and draw:
+Then optimize and inspect the suggested patchwork layout:
 
 ```r
 layout_result <- suggest_patchwork_layout(
   plots = list(plot_a = p1, plot_b = p2, plot_c = p3),
   page_width_in = 8.27,
-  page_height_in = 11.69,
-  layout_engine = "grid"
+  page_height_in = 11.69
 )
 
-pdf("report.pdf", width = 8.27, height = 11.69)
-draw_layout_pages(layout_result)
-dev.off()
-```
-
-## Patchwork vs Grid Output
-
-`layout_engine = "patchwork"` is the default for backward compatibility. It
-returns editable patchwork objects and generated patchwork code:
-
-```r
-layout_result <- suggest_patchwork_layout(plots)
+# Main artifacts for review, manual adjustment, and reuse:
 layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
-`layout_engine = "grid"` is recommended for final PDF rendering. It draws plots
-inside exact physical viewports using optimized row and column sizes:
+## Patchwork vs Grid Output
+
+`layout_engine = "patchwork"` is the preferred and default workflow when you
+want an optimized layout that remains easy to inspect, copy, paste, and adjust
+by hand. The main artifacts are the returned patchwork object and the generated
+patchwork code for each page:
+
+```r
+layout_result <- suggest_patchwork_layout(plots)
+
+# Draw or further customize the editable patchwork object.
+layout_result$pages[[1]]$patchwork
+
+# Copy/paste this generated code into your own script as a starting point.
+cat(layout_result$pages[[1]]$patchwork_code)
+```
+
+`layout_engine = "grid"` is an optional exact preview and rendering aid. It
+draws plots inside exact physical viewports using optimized row and column
+sizes, which is useful for visual review or high-fidelity PDF checks before you
+copy the generated patchwork code back into your report workflow:
 
 ```r
 layout_result <- suggest_patchwork_layout(plots, layout_engine = "grid")
-pdf("optimized-report.pdf", width = 8.27, height = 11.69)
+pdf("optimized-preview.pdf", width = 8.27, height = 11.69)
 draw_layout_pages(layout_result)
 dev.off()
 ```
 
-Best-effort editable patchwork code remains available for both engines.
+The editable patchwork artifacts, especially `pages[[i]]$patchwork` and
+`pages[[i]]$patchwork_code`, remain the primary handoff for final user scripts.
 
 ## Demo
 

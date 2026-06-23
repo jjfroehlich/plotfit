@@ -49,6 +49,7 @@ test_that("suggest_patchwork_layout grid pages keep editable patchwork artifacts
   expect_false(is.null(result$pages[[1]]$patchwork))
   expect_type(result$pages[[1]]$patchwork_code, "character")
   expect_gt(nchar(result$pages[[1]]$patchwork_code), 0)
+  expect_true(nzchar(result$pages[[1]]$patchwork_code))
   expect_s3_class(result$pages[[1]]$grob, "grob")
   expect_equal(nrow(result$plot_diagnostics), 2)
 })
