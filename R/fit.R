@@ -2,15 +2,64 @@
 make_plot_fit_function <- function(profile, preferences) {
   force(profile)
   force(preferences)
+  cache <- new.env(hash = TRUE, parent = emptyenv())
+  counters <- new.env(parent = emptyenv())
+  counters$requests <- 0L
+  counters$evaluations <- 0L
+  cache_resolution_mm <- 0.1
 
-  function(width_mm, height_mm) {
-    evaluate_plot_fit(
+  fit_function <- function(width_mm, height_mm) {
+    canonical_width_mm <- round(width_mm / cache_resolution_mm) * cache_resolution_mm
+    canonical_height_mm <- round(height_mm / cache_resolution_mm) * cache_resolution_mm
+    cache_key <- sprintf("%.1f|%.1f", canonical_width_mm, canonical_height_mm)
+    counters$requests <- counters$requests + 1L
+
+    if (exists(cache_key, envir = cache, inherits = FALSE)) {
+      return(get(cache_key, envir = cache, inherits = FALSE))
+    }
+
+    fit <- evaluate_plot_fit(
       profile = profile,
-      width_mm = width_mm,
-      height_mm = height_mm,
+      width_mm = canonical_width_mm,
+      height_mm = canonical_height_mm,
       preferences = preferences
     )
+    assign(cache_key, fit, envir = cache)
+    counters$evaluations <- counters$evaluations + 1L
+    fit
   }
+
+  attr(fit_function, "plotfit_cache_stats") <- function() {
+    list(
+      plot_id = profile$plot_id,
+      requests = counters$requests,
+      evaluations = counters$evaluations,
+      hits = counters$requests - counters$evaluations
+    )
+  }
+  fit_function
+}
+
+collect_fit_cache_diagnostics <- function(fit_functions) {
+  rows <- lapply(names(fit_functions), function(plot_id) {
+    stats_function <- attr(fit_functions[[plot_id]], "plotfit_cache_stats")
+    if (is.null(stats_function)) {
+      return(data.frame(
+        plot_id = plot_id, requests = NA_integer_, evaluations = NA_integer_,
+        hits = NA_integer_, hit_rate = NA_real_, stringsAsFactors = FALSE
+      ))
+    }
+    stats <- stats_function()
+    data.frame(
+      plot_id = plot_id,
+      requests = stats$requests,
+      evaluations = stats$evaluations,
+      hits = stats$hits,
+      hit_rate = if (stats$requests > 0) stats$hits / stats$requests else 0,
+      stringsAsFactors = FALSE
+    )
+  })
+  do.call(rbind, rows)
 }
 
 evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
@@ -428,25 +477,67 @@ estimate_aspect_ratio_loss <- function(profile, panel_width_mm, panel_height_mm)
 
 
 # ---- size-frontier.R ----
-estimate_size_frontier <- function(fit_function, page_spec, grid_step_mm = 5, acceptable_loss_threshold = 10) {
-  width_grid_mm <- unique(sort(c(
-    seq(grid_step_mm, min(page_spec$width_mm, 80), by = 2 * grid_step_mm),
-    seq(90, page_spec$width_mm, length.out = 6),
-    page_spec$width_mm
-  )))
-  height_grid_mm <- unique(sort(c(
-    seq(grid_step_mm, min(page_spec$height_mm, 80), by = 2 * grid_step_mm),
-    seq(90, page_spec$height_mm, length.out = 7),
-    page_spec$height_mm
-  )))
-  width_grid_mm <- width_grid_mm[is.finite(width_grid_mm) & width_grid_mm > 0 & width_grid_mm <= page_spec$width_mm]
-  height_grid_mm <- height_grid_mm[is.finite(height_grid_mm) & height_grid_mm > 0 & height_grid_mm <= page_spec$height_mm]
+estimate_size_frontier <- function(
+    fit_function,
+    page_spec,
+    coarse_step_mm = 20,
+    refine = TRUE,
+    refine_step_mm = 5,
+    acceptable_loss_threshold = 10) {
+  width_grid_mm <- make_frontier_axis_grid(page_spec$width_mm, coarse_step_mm)
+  height_grid_mm <- make_frontier_axis_grid(page_spec$height_mm, coarse_step_mm)
+  coarse_grid <- expand.grid(width_mm = width_grid_mm, height_mm = height_grid_mm)
+  frontier <- evaluate_frontier_grid(fit_function, coarse_grid)
+  frontier <- mark_acceptable_frontier(frontier, acceptable_loss_threshold)
 
-  grid <- expand.grid(
-    width_mm = width_grid_mm,
-    height_mm = height_grid_mm
+  if (refine && nrow(frontier) > 0) {
+    promising_index <- if (any(frontier$acceptable)) {
+      which.min(frontier$area_mm2 + ifelse(frontier$acceptable, 0, Inf))
+    } else {
+      which.min(frontier$total_loss)
+    }
+    promising <- frontier[promising_index, , drop = FALSE]
+    refinement_grid <- make_frontier_refinement_grid(
+      width_mm = promising$width_mm,
+      height_mm = promising$height_mm,
+      page_spec = page_spec,
+      radius_mm = coarse_step_mm,
+      step_mm = refine_step_mm
+    )
+    refined <- evaluate_frontier_grid(fit_function, refinement_grid)
+    refined <- mark_acceptable_frontier(refined, acceptable_loss_threshold)
+    frontier <- rbind(frontier, refined)
+    frontier <- frontier[!duplicated(frontier[c("width_mm", "height_mm")]), , drop = FALSE]
+    frontier <- mark_acceptable_frontier(frontier, acceptable_loss_threshold)
+  }
+
+  rownames(frontier) <- NULL
+  frontier
+}
+
+make_frontier_axis_grid <- function(limit_mm, step_mm) {
+  stepped_values <- if (limit_mm >= step_mm) seq(step_mm, limit_mm, by = step_mm) else numeric()
+  values <- c(5, stepped_values, 80, 90, limit_mm)
+  unique(sort(values[is.finite(values) & values > 0 & values <= limit_mm]))
+}
+
+make_frontier_refinement_grid <- function(width_mm, height_mm, page_spec, radius_mm, step_mm) {
+  offsets <- seq(-radius_mm, radius_mm, by = step_mm)
+  candidates <- rbind(
+    data.frame(width_mm = width_mm + offsets, height_mm = height_mm),
+    data.frame(width_mm = width_mm, height_mm = height_mm + offsets),
+    data.frame(width_mm = width_mm + offsets, height_mm = height_mm + offsets),
+    data.frame(width_mm = width_mm + offsets, height_mm = height_mm - offsets)
   )
+  candidates <- candidates[
+    candidates$width_mm > 0 & candidates$width_mm <= page_spec$width_mm &
+      candidates$height_mm > 0 & candidates$height_mm <= page_spec$height_mm,
+    , drop = FALSE
+  ]
+  unique(candidates)
+}
 
+evaluate_frontier_grid <- function(fit_function, grid) {
   fit_rows <- vector("list", nrow(grid))
   for (grid_index in seq_len(nrow(grid))) {
     fit <- fit_function(grid$width_mm[grid_index], grid$height_mm[grid_index])
@@ -461,12 +552,13 @@ estimate_size_frontier <- function(fit_function, page_spec, grid_step_mm = 5, ac
       panel_height_mm = fit$panel_height_mm
     )
   }
+  do.call(rbind, fit_rows)
+}
 
-  frontier <- do.call(rbind, fit_rows)
+mark_acceptable_frontier <- function(frontier, acceptable_loss_threshold) {
   frontier$acceptable <- frontier$total_loss <= acceptable_loss_threshold &
     frontier$hard_violation_mm <= 0
   frontier$area_mm2 <- frontier$width_mm * frontier$height_mm
-
   frontier
 }
 

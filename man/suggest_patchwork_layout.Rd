@@ -20,6 +20,7 @@ suggest_patchwork_layout(
   max_grid_rows = 8,
   allow_multipage = TRUE,
   max_pages = Inf,
+  page_groups = NULL,
   multipage_penalty = 25,
   keep_plot_order = TRUE,
   allow_empty_cells = TRUE,
@@ -27,7 +28,10 @@ suggest_patchwork_layout(
   collect_axes = FALSE,
   device = c("pdf", "cairo_pdf"),
   use_check_overlap_oracle = TRUE,
+  search_mode = c("standard", "fast"),
   search_budget = 500,
+  search_timeout_seconds = Inf,
+  early_stop_patience = Inf,
   return_candidates = 5,
   output_style = c("design", "nested_patchwork"),
   layout_engine = c("patchwork", "grid"),
@@ -50,13 +54,17 @@ draw_layout_pages(result)
 \item{max_grid_cols, max_grid_rows}{Maximum columns and rows for generated patchwork design strings.}
 \item{allow_multipage}{Whether the optimizer may split plots across multiple pages. Defaults to \code{TRUE}.}
 \item{max_pages}{Maximum number of pages to consider.}
+\item{page_groups}{Optional complete ordered list of plot-ID vectors defining fixed pages. Every plot must appear exactly once; a singleton group isolates that plot on its own page.}
 \item{multipage_penalty}{Penalty added for each additional page.}
 \item{keep_plot_order}{Whether to prioritize order-preserving layouts. Version 1 still prioritizes ordered candidates.}
 \item{allow_empty_cells}{Whether empty \code{#} cells may appear in design strings. Version 1 may use them for editable rectangular designs.}
 \item{collect_guides, collect_axes}{Whether to ask patchwork to collect guides or axes. Defaults keep guides and axes unchanged.}
 \item{device}{Measurement device, either \code{"pdf"} or \code{"cairo_pdf"}.}
 \item{use_check_overlap_oracle}{Reserved for future diagnostics. Version 1 uses explicit grid measurements instead.}
+\item{search_mode}{Search preset. \code{"standard"} preserves the full search; \code{"fast"} lowers default search, frontier, page, and weight-optimization work for interactive use. Explicit tuning arguments override the preset.}
 \item{search_budget}{Maximum generated layout combinations scored per page assignment.}
+\item{search_timeout_seconds}{Soft candidate-search time limit in seconds. The current candidate is always allowed to finish.}
+\item{early_stop_patience}{Number of candidates without lexicographic improvement before stopping, once enough hard-feasible candidates have been found.}
 \item{return_candidates}{Number of top scored candidates to retain in the result.}
 \item{output_style}{Code style for editable output. \code{"design"} is the canonical reproducible style.}
 \item{layout_engine}{Output engine. \code{"patchwork"} returns editable patchwork pages by default for compatibility; \code{"grid"} returns exact grid grobs using physical row and column sizes and is recommended for final PDF rendering.}
@@ -66,7 +74,7 @@ draw_layout_pages(result)
 \item{result}{A result object returned by \code{suggest_patchwork_layout()}, or a list of page objects.}
 }
 \value{
-A list with drawable \code{pages}, \code{plot_diagnostics}, \code{layout_diagnostics}, retained \code{candidates}, \code{warnings}, and measurement \code{assumptions}. Each page includes physical \code{col_widths_mm}, \code{row_heights_mm}, content dimensions, inferred \code{inner_scales}, best-effort editable \code{patchwork_code}, and either a \code{patchwork} object or a \code{grob}, depending on \code{layout_engine}.
+A list with drawable \code{pages}, \code{plot_diagnostics}, \code{layout_diagnostics}, retained \code{candidates}, \code{performance_diagnostics}, \code{warnings}, and measurement \code{assumptions}. Performance diagnostics include stage timings, candidate-search counts and stop reason, and per-plot fit-cache statistics. Each page includes physical \code{col_widths_mm}, \code{row_heights_mm}, content dimensions, inferred \code{inner_scales}, best-effort editable \code{patchwork_code}, and either a \code{patchwork} object or a \code{grob}, depending on \code{layout_engine}.
 }
 \description{
 Optimizes layouts for ordinary lists of \code{ggplot2} plots. The function measures plots on a target-like PDF device, infers how much physical space each plot needs, searches page layouts, optimizes row and column sizes, and optionally chooses a multipage solution.
@@ -76,7 +84,7 @@ Use this helper when a plain equal grid wastes page space or gives too little ro
 
 The optimizer keeps the input plots unchanged. It does not rotate labels, wrap labels, resize the PDF page, rewrite facets, move legends, paginate facets, or collect guides and axes unless explicitly requested.
 
-Automatic sizing rule: plot footprints must be inferred from the supplied ggplot objects and their measured grobs. Users should not provide per-plot widths, heights, scale factors, or footprint metadata. \code{plot_names} are identifiers only; they label diagnostics and generated code but must not affect sizing, scoring, page assignment, or inner plot scaling. Numeric widths, heights, and scale factors that appear in generated patchwork code are optimizer output, not user input.
+Automatic sizing rule: plot footprints must be inferred from the supplied ggplot objects and their measured grobs. Users should not provide per-plot widths, heights, scale factors, or footprint metadata. \code{plot_names} are identifiers for automatic search, diagnostics, and generated code; when \code{page_groups} is supplied they may additionally express narrative page membership, but never physical sizing. Numeric widths, heights, and scale factors that appear in generated patchwork code are optimizer output, not user input.
 
 Use \code{layout_engine = "grid"} for final visual PDF review when exact physical plot footprints matter. Use \code{layout_engine = "patchwork"} when editable patchwork objects are the primary deliverable. Patchwork code is still returned for both engines.
 

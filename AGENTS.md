@@ -28,12 +28,14 @@ When receiving visual feedback:
 ## Product Rules
 
 This project is an automatic ggplot layout optimizer. Users should not need to
-provide per-plot dimensions, footprint metadata, manual scale factors, or
-plot-specific layout instructions.
+provide per-plot dimensions, footprint metadata, or manual scale factors.
+Explicit narrative page membership through the public `page_groups` option is
+allowed; it must never alter automatic physical sizing.
 
-Plot names are identifiers only. They may label diagnostics, generated code,
-and output objects, but they must not influence sizing, scoring, page
-assignment, or inner plot scaling.
+Plot names are identifiers only during automatic search. They may label
+diagnostics, generated code, and output objects, and may be referenced by an
+explicit `page_groups` constraint, but must not influence sizing, scoring, or
+inner plot scaling.
 
 The tool is layout-only. It should not rotate or wrap labels, move legends,
 paginate facets, or edit themes unless an explicit public option already asks

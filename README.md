@@ -80,6 +80,32 @@ layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
+## Faster and Constrained Searches
+
+Use the fast preset for interactive iteration. Explicit limits still override
+the preset defaults:
+
+```r
+quick_result <- suggest_patchwork_layout(plots, search_mode = "fast")
+quick_result$performance_diagnostics$stages
+quick_result$performance_diagnostics$candidates
+quick_result$performance_diagnostics$fit_cache
+```
+
+For a narrative report, provide the complete page partition using plot names.
+Singleton groups isolate a plot without supplying any physical dimensions:
+
+```r
+report_result <- suggest_patchwork_layout(
+  plots,
+  page_groups = list(c("overview", "trend"), "full_page_map", c("details", "appendix"))
+)
+```
+
+Candidate search can also be bounded directly with
+`search_timeout_seconds` and `early_stop_patience`. Timeouts are soft: an
+in-progress candidate is allowed to finish.
+
 ## Patchwork vs Grid Output
 
 `layout_engine = "patchwork"` is the preferred and default workflow when you

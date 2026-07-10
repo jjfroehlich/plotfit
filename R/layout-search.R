@@ -495,7 +495,17 @@ optimize_layout_weights <- function(layout_page, fit_functions, page_spec, prefe
     page_score$hard_loss * 1000 + page_score$score
   }
 
-  theta <- optimize_layout_weights_greedy(theta0, objective)
+  optimization_steps <- preferences$weight_optimization_steps
+  if (is.null(optimization_steps)) {
+    optimization_steps <- c(0.7, 0.35, 0.15)
+  }
+  optimization_passes <- scalar_or_default(preferences$weight_optimization_passes, 4L)
+  theta <- optimize_layout_weights_greedy(
+    theta0,
+    objective,
+    steps = optimization_steps,
+    max_passes = optimization_passes
+  )
 
   widths <- clamp_layout_weights(exp(theta[seq_len(n_cols)]))
   heights <- clamp_layout_weights(exp(theta[n_cols + seq_len(n_rows)]))
@@ -527,14 +537,18 @@ optimize_layout_weights <- function(layout_page, fit_functions, page_spec, prefe
   layout_page
 }
 
-optimize_layout_weights_greedy <- function(theta0, objective) {
+optimize_layout_weights_greedy <- function(
+    theta0,
+    objective,
+    steps = c(0.7, 0.35, 0.15),
+    max_passes = 4L) {
   theta <- theta0
   best_score <- objective(theta)
 
-  for (step in c(0.7, 0.35, 0.15)) {
+  for (step in steps) {
     improved <- TRUE
     pass_count <- 0
-    while (improved && pass_count < 4) {
+    while (improved && pass_count < max_passes) {
       pass_count <- pass_count + 1
       improved <- FALSE
       for (index in seq_along(theta)) {
@@ -732,17 +746,29 @@ score_multipage_solution <- function(page_scores, n_pages, preferences) {
 }
 
 select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, preferences) {
-  assignments <- generate_page_assignments(
-    plot_ids = plot_ids,
-    frontiers = frontiers,
-    allow_multipage = preferences$allow_multipage,
-    max_pages = preferences$max_pages,
-    keep_plot_order = TRUE
-  )
+  assignments <- if (!is.null(preferences$page_groups)) {
+    list(preferences$page_groups)
+  } else {
+    generate_page_assignments(
+      plot_ids = plot_ids,
+      frontiers = frontiers,
+      allow_multipage = preferences$allow_multipage,
+      max_pages = preferences$max_pages,
+      keep_plot_order = TRUE
+    )
+  }
 
   scored_candidates <- list()
   candidate_id <- 1L
   candidate_budget <- max(1L, as.integer(preferences$search_budget))
+  generated_count <- 0L
+  feasible_count <- 0L
+  candidates_since_improvement <- 0L
+  best_so_far <- c(Inf, Inf, Inf)
+  search_started_at <- proc.time()[["elapsed"]]
+  progress_interval <- max(1L, ceiling(candidate_budget / 10))
+  stop_reason <- "candidate_space_exhausted"
+  stop_requested <- FALSE
 
   for (assignment_index in seq_along(assignments)) {
     if (length(scored_candidates) >= candidate_budget) {
@@ -757,6 +783,7 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
       keep_plot_order = TRUE,
       search_budget = preferences$search_budget
     )
+    generated_count <- generated_count + length(generated_candidates)
 
     for (generated_index in seq_along(generated_candidates)) {
       if (length(scored_candidates) >= candidate_budget) {
@@ -775,7 +802,66 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
 
       scored_candidates[[length(scored_candidates) + 1]] <- scored_candidate
       candidate_id <- candidate_id + 1L
+
+      candidate_tuple <- c(
+        scalar_or_default(scored_candidate$max_hard_violation, Inf),
+        scalar_or_default(scored_candidate$hard_loss, Inf),
+        scalar_or_default(scored_candidate$soft_score, scored_candidate$score)
+      )
+      if (candidate_tuple[1] <= 0) {
+        feasible_count <- feasible_count + 1L
+      }
+      if (is_lexicographically_better(candidate_tuple, best_so_far)) {
+        best_so_far <- candidate_tuple
+        candidates_since_improvement <- 0L
+      } else {
+        candidates_since_improvement <- candidates_since_improvement + 1L
+      }
+
+      scored_count <- length(scored_candidates)
+      elapsed_seconds <- proc.time()[["elapsed"]] - search_started_at
+      if (isTRUE(preferences$verbose) &&
+          (scored_count == 1L || scored_count %% progress_interval == 0L || scored_count == candidate_budget)) {
+        message(
+          "Scored ", scored_count, "/", candidate_budget,
+          " candidates; feasible: ", feasible_count,
+          "; best score: ", format(best_so_far[3], digits = 5),
+          "; elapsed: ", format(round(elapsed_seconds, 1), nsmall = 1), "s."
+        )
+      }
+
+      timeout_seconds <- scalar_or_default(preferences$search_timeout_seconds, Inf)
+      patience <- scalar_or_default(preferences$early_stop_patience, Inf)
+      if (is.finite(timeout_seconds) && elapsed_seconds >= timeout_seconds) {
+        stop_reason <- "timeout"
+        stop_requested <- TRUE
+      } else if (is.finite(patience) && feasible_count >= preferences$return_candidates &&
+                 candidates_since_improvement >= patience) {
+        stop_reason <- "patience"
+        stop_requested <- TRUE
+      }
+      if (stop_requested) {
+        break
+      }
     }
+    if (stop_requested) {
+      break
+    }
+  }
+
+  if (length(scored_candidates) == 0) {
+    stop("No layout candidates could be generated.", call. = FALSE)
+  }
+  if (!stop_requested && length(scored_candidates) >= candidate_budget) {
+    stop_reason <- "budget"
+  }
+  search_elapsed <- proc.time()[["elapsed"]] - search_started_at
+  if (isTRUE(preferences$verbose)) {
+    message(
+      "Candidate search stopped: ", stop_reason,
+      " after ", length(scored_candidates), " candidate(s) and ",
+      format(round(search_elapsed, 1), nsmall = 1), "s."
+    )
   }
 
   hard_violations <- vapply(scored_candidates, function(candidate) {
@@ -802,8 +888,29 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
   ordered_candidates <- scored_candidates[candidate_order]
   list(
     best_candidate = best_candidate,
-    candidates = utils::head(ordered_candidates, preferences$return_candidates)
+    candidates = utils::head(ordered_candidates, preferences$return_candidates),
+    search_diagnostics = data.frame(
+      generated = generated_count,
+      scored = length(scored_candidates),
+      feasible = feasible_count,
+      retained = min(length(ordered_candidates), preferences$return_candidates),
+      budget = candidate_budget,
+      stop_reason = stop_reason,
+      stringsAsFactors = FALSE
+    )
   )
+}
+
+is_lexicographically_better <- function(candidate, incumbent) {
+  for (index in seq_along(candidate)) {
+    if (candidate[index] < incumbent[index]) {
+      return(TRUE)
+    }
+    if (candidate[index] > incumbent[index]) {
+      return(FALSE)
+    }
+  }
+  FALSE
 }
 
 
