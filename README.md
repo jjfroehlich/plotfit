@@ -1,30 +1,18 @@
 # plotfit
 
-Automatic layout optimization for multi-plot ggplot PDF reports.
+Automatic layout optimization for multi-plot ggplot PDF exports.
 
-`plotfit` measures ggplot objects on a target-like PDF device,
-infers how much physical space each plot needs, searches page layouts, and
-returns suggested editable patchwork layouts, generated patchwork code for
-copy/paste into user scripts, drawable pages, and diagnostics. It is useful
-when a report contains a mix of simple plots, long labels, facets, legends,
-dense data, and fixed-aspect plots, and a plain equal grid wastes space or
-clips readable detail.
+`plotfit` measures ggplot objects on a target-like PDF device, infers how much physical space each plot needs and returns suggested layouts for the 'patchwork' package, so that final plots have an ideal sizing.
 
 ![Before and after layout comparison](man/figures/readme-layout-comparison.png)
 
 ## What It Does
 
-- Accepts an ordinary named list of `ggplot2` plots.
-- Infers plot footprints automatically from grobs, axes, labels, legends,
-  facets, aspect constraints, and density diagnostics.
-- Chooses one or more pages when multipage output improves readability.
-- Suggests editable patchwork layouts and returns generated patchwork code
-  intended for copy/paste into user scripts.
-- Keeps the original plots unchanged.
-
-Users do not specify per-plot widths, heights, scale factors, or footprint
-metadata. Plot names are identifiers for diagnostics and generated code only;
-they must not affect sizing, scoring, page assignment, or inner plot scaling.
+- Accepts a list of `ggplot2` plots.
+- Infers plot footprints automatically from axes, labels, aspect constraints.
+- Chooses one or more pages.
+- Suggests layouts for patchwork pacakge that results in sensible sizing of plots.
+- Patchwork layout can be adjusted by user. 
 
 ## Installation
 
@@ -41,7 +29,7 @@ Or, from inside the project directory:
 remotes::install_local(".")
 ```
 
-After the package is published on GitHub, install it with:
+If the package is published on GitHub, install it with:
 
 ```r
 remotes::install_github("jjfroehlich/plotfit")
@@ -110,8 +98,7 @@ in-progress candidate is allowed to finish.
 
 `layout_engine = "patchwork"` is the preferred and default workflow when you
 want an optimized layout that remains easy to inspect, copy, paste, and adjust
-by hand. The main artifacts are the returned patchwork object and the generated
-patchwork code for each page:
+by hand. 
 
 ```r
 layout_result <- suggest_patchwork_layout(plots)
@@ -123,10 +110,7 @@ layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
-`layout_engine = "grid"` is an optional exact preview and rendering aid. It
-draws plots inside exact physical viewports using optimized row and column
-sizes, which is useful for visual review or high-fidelity PDF checks before you
-copy the generated patchwork code back into your report workflow:
+`layout_engine = "grid"` is an optional exact preview and rendering aid. 
 
 ```r
 layout_result <- suggest_patchwork_layout(plots, layout_engine = "grid")
@@ -134,9 +118,6 @@ pdf("optimized-preview.pdf", width = 8.27, height = 11.69)
 draw_layout_pages(layout_result)
 dev.off()
 ```
-
-The editable patchwork artifacts, especially `pages[[i]]$patchwork` and
-`pages[[i]]$patchwork_code`, remain the primary handoff for final user scripts.
 
 ## Demo
 
@@ -180,11 +161,3 @@ Key invariants:
 - The demo script must pass ordinary ggplot objects, not plot-specific footprint
   overrides.
 - Visual PDF review should use `layout_engine = "grid"`.
-
-## Limitations
-
-Exact visual collision detection is not guaranteed. Text measurements are
-device-dependent, PDF viewers and font substitution may shift appearance
-slightly, inside legends and in-panel annotations are hard to assess, and dense
-data readability is approximate. Facet-heavy reports may still need visual
-review.
