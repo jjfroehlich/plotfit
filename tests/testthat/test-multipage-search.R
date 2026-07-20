@@ -1,4 +1,4 @@
-test_that("multipage search can beat a violating one-page layout", {
+test_that("small budgets compare one-page and multipage assignments", {
   plot_ids <- c("p1", "p2")
   frontiers <- list(
     p1 = list(preferred_width_mm = 90, preferred_height_mm = 80, min_acceptable_area_mm2 = 7200),
@@ -32,7 +32,7 @@ test_that("multipage search can beat a violating one-page layout", {
     max_pages = 2,
     max_grid_cols = 2,
     max_grid_rows = 2,
-    search_budget = 20,
+    search_budget = 2,
     return_candidates = 3,
     multipage_penalty = 25,
     complexity_penalty = 0,

@@ -3,8 +3,8 @@
 ###################################################################################################################/
 
 # This is the canonical demo entry point. It builds several ordinary ggplot
-# lists, runs the optimizer without per-plot footprint inputs, and writes final
-# PDF reports under demo_output/. Diagnostics are written only when requested.
+# lists, runs the optimizer without per-plot footprint inputs, and writes one
+# review PDF under demo_output/. Diagnostics are written only when requested.
 
 script_path_from_command_args <- function() {
   script_args <- commandArgs(trailingOnly = FALSE)
@@ -82,24 +82,83 @@ demo_compact_theme <- function() {
   )
 }
 
-write_layout_result <- function(
-    layout_result,
+label_feedback_plots <- function(plots, first_plot_number = 1L) {
+  plot_numbers <- seq.int(first_plot_number, length.out = length(plots))
+  plot_ids <- paste0("p", plot_numbers)
+
+  for (plot_index in seq_along(plots)) {
+    existing_title <- plots[[plot_index]]$labels$title
+    if (is.null(existing_title) || length(existing_title) == 0 || is.na(existing_title[1])) {
+      existing_title <- "Untitled plot"
+    }
+    plots[[plot_index]] <- plots[[plot_index]] +
+      ggplot2::labs(title = paste0("(", plot_ids[plot_index], ") ", existing_title[1]))
+  }
+
+  names(plots) <- plot_ids
+  plots
+}
+
+feedback_scenario_start_numbers <- function(plot_sets) {
+  if (length(plot_sets) == 0) {
+    return(integer())
+  }
+
+  plot_counts <- vapply(plot_sets, length, integer(1))
+  start_numbers <- c(1L, utils::head(cumsum(plot_counts), -1L) + 1L)
+  stats::setNames(start_numbers, names(plot_sets))
+}
+
+same_normalized_path <- function(path_a, path_b) {
+  identical(
+    tolower(normalizePath(path_a, winslash = "/", mustWork = FALSE)),
+    tolower(normalizePath(path_b, winslash = "/", mustWork = FALSE))
+  )
+}
+
+write_feedback_pdf <- function(
+    layout_results,
     output_dir,
-    prefix,
+    filename,
     page_width_in,
     page_height_in,
     text_size,
+    archive_previous = FALSE) {
+
+  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+  pdf_filename <- file.path(output_dir, filename)
+  if (archive_previous && file.exists(pdf_filename)) {
+    previous_dir <- file.path(output_dir, "previous")
+    dir.create(previous_dir, showWarnings = FALSE, recursive = TRUE)
+    previous_filename <- file.path(previous_dir, filename)
+    copied <- file.copy(pdf_filename, previous_filename, overwrite = TRUE)
+    if (!isTRUE(copied)) {
+      stop("Could not preserve the previous feedback PDF.", call. = FALSE)
+    }
+    message("Previous feedback PDF preserved at: ", previous_filename)
+  }
+
+  pdf(pdf_filename, width = page_width_in, height = page_height_in, family = "Helvetica", pointsize = text_size)
+  on.exit(dev.off(), add = TRUE)
+  for (layout_result in layout_results) {
+    draw_layout_pages(layout_result)
+  }
+  dev.off()
+  on.exit(NULL, add = FALSE)
+
+  message("Unified feedback PDF written to: ", pdf_filename)
+  normalizePath(pdf_filename, winslash = "/", mustWork = FALSE)
+}
+
+write_layout_diagnostics <- function(
+    layout_result,
+    output_dir,
+    prefix,
     label,
     diagnostics = FALSE) {
 
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-
-  pdf_filename <- file.path(output_dir, paste0(prefix, ".pdf"))
-  pdf(pdf_filename, width = page_width_in, height = page_height_in, family = "Helvetica", pointsize = text_size)
-  draw_layout_pages(layout_result)
-  dev.off()
-
-  message(label, " PDF written to: ", pdf_filename)
 
   diagnostics_filename <- NA_character_
   layout_diagnostics_filename <- NA_character_
@@ -143,17 +202,11 @@ write_layout_result <- function(
     message(label, " editable patchwork code written to: ", patchwork_code_filename)
   }
 
-  data.frame(
-    scenario = label,
-    prefix = prefix,
-    pdf = normalizePath(pdf_filename, winslash = "/", mustWork = FALSE),
+  list(
     plot_diagnostics = normalizePath(diagnostics_filename, winslash = "/", mustWork = FALSE),
     layout_diagnostics = normalizePath(layout_diagnostics_filename, winslash = "/", mustWork = FALSE),
     patchwork_code = normalizePath(patchwork_code_filename, winslash = "/", mustWork = FALSE),
-    warnings = normalizePath(warnings_filename, winslash = "/", mustWork = FALSE),
-    n_pages = length(layout_result$pages),
-    n_warnings = length(layout_result$warnings),
-    stringsAsFactors = FALSE
+    warnings = normalizePath(warnings_filename, winslash = "/", mustWork = FALSE)
   )
 }
 
@@ -548,6 +601,103 @@ make_real_world_stress_plots <- function() {
   )
 }
 
+make_extreme_feedback_plots <- function() {
+  set.seed(20260720)
+  okabe_ito <- demo_palette()
+  compact_theme <- demo_compact_theme()
+
+  category_data <- data.frame(
+    category = factor(
+      paste0(
+        "Extremely verbose category ", sprintf("%02d", seq_len(18)),
+        " with a distinguishing suffix"
+      )
+    ),
+    value = sample(20:95, 18)
+  )
+
+  facet_data <- ggplot2::diamonds[sample(seq_len(nrow(ggplot2::diamonds)), 1800), ]
+
+  legend_groups <- paste("Treatment arm", LETTERS[seq_len(12)])
+  legend_data <- data.frame(
+    x = rep(seq_len(24), times = length(legend_groups)),
+    y = unlist(lapply(seq_along(legend_groups), function(group_index) {
+      cumsum(stats::rnorm(24, mean = 0.03 * group_index, sd = 0.35)) + group_index
+    })),
+    group = factor(rep(legend_groups, each = 24), levels = legend_groups)
+  )
+
+  dense_data <- data.frame(
+    x = stats::rnorm(18000),
+    y = stats::rnorm(18000)
+  )
+  dense_data$cluster <- factor(ifelse(dense_data$x + dense_data$y > 0, "upper", "lower"))
+
+  forest_labels <- paste0(
+    "Endpoint ", sprintf("%02d", seq_len(14)),
+    " - deliberately long clinical description"
+  )
+  forest_data <- data.frame(
+    endpoint = factor(forest_labels, levels = rev(forest_labels)),
+    estimate = seq(-0.2, 0.65, length.out = 14) + stats::rnorm(14, 0, 0.08),
+    uncertainty = seq(0.10, 0.26, length.out = 14)
+  )
+  forest_data$low <- forest_data$estimate - forest_data$uncertainty
+  forest_data$high <- forest_data$estimate + forest_data$uncertainty
+
+  matrix_data <- expand.grid(
+    metric_x = paste0("Metric ", seq_len(12)),
+    metric_y = paste0("Metric ", seq_len(12))
+  )
+  matrix_data$value <- stats::runif(nrow(matrix_data), -1, 1)
+  matrix_data$label <- sprintf("%.2f", matrix_data$value)
+
+  list(
+    extreme_long_category_bars = ggplot(category_data, aes(category, value, fill = value)) +
+      geom_col(color = "black", linewidth = 0.2) +
+      scale_fill_gradient(low = okabe_ito["sky_blue"], high = okabe_ito["blue"]) +
+      labs(title = "Extreme category-label burden", x = "Category", y = "Value", fill = "Value") +
+      theme(axis.text.x = element_text(angle = 55, hjust = 1), legend.position = "none", aspect.ratio = 0.45) +
+      compact_theme,
+
+    extreme_facet_grid = ggplot(facet_data, aes(carat, price)) +
+      geom_point(alpha = 0.35, size = 0.35, color = okabe_ito["blue"]) +
+      facet_grid(color ~ cut) +
+      labs(title = "Thirty-five-panel facet grid", x = "Carat", y = "Price") +
+      compact_theme,
+
+    extreme_bottom_legend = ggplot(legend_data, aes(x, y, color = group)) +
+      geom_line(linewidth = 0.3) +
+      scale_color_manual(values = rep(unname(okabe_ito), length.out = length(legend_groups))) +
+      labs(title = "Twelve-entry bottom legend", x = "Visit", y = "Response", color = "Arm") +
+      theme(legend.position = "bottom", aspect.ratio = 0.7) +
+      guides(color = guide_legend(nrow = 3, byrow = TRUE)) +
+      compact_theme,
+
+    extreme_dense_scatter = ggplot(dense_data, aes(x, y, color = cluster)) +
+      geom_point(alpha = 0.08, size = 0.3) +
+      scale_color_manual(values = unname(okabe_ito[c("blue", "vermillion")])) +
+      labs(title = "Eighteen-thousand-point cloud", x = "Feature 1", y = "Feature 2", color = "Cluster") +
+      theme(legend.position = "none", aspect.ratio = 1) +
+      compact_theme,
+
+    extreme_forest_labels = ggplot(forest_data, aes(endpoint, estimate, ymin = low, ymax = high)) +
+      geom_hline(yintercept = 0, color = "grey70", linewidth = 0.25) +
+      geom_pointrange(color = okabe_ito["blue"], linewidth = 0.35) +
+      coord_flip() +
+      labs(title = "Long-label interval estimates", x = NULL, y = "Standardized effect") +
+      compact_theme,
+
+    extreme_text_matrix = ggplot(matrix_data, aes(metric_x, metric_y, fill = value)) +
+      geom_tile(color = "white", linewidth = 0.15) +
+      geom_text(aes(label = label), size = 1.35) +
+      scale_fill_gradient2(low = okabe_ito["blue"], mid = "white", high = okabe_ito["vermillion"], limits = c(-1, 1)) +
+      labs(title = "Twelve-by-twelve labelled matrix", x = NULL, y = NULL, fill = "Score") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right", aspect.ratio = 1) +
+      compact_theme
+  )
+}
+
 demo_scenarios <- function() {
   list(
     original = list(
@@ -576,8 +726,18 @@ demo_scenarios <- function() {
       builder = make_real_world_stress_plots,
       max_grid_cols = 20,
       max_grid_rows = 8,
-      search_budget = 10,
-      return_candidates = 6,
+      search_budget = 20,
+      return_candidates = 8,
+      max_pages = 4
+    ),
+    extremes = list(
+      label = "Extreme cases",
+      prefix = "extreme_cases",
+      builder = make_extreme_feedback_plots,
+      max_grid_cols = 20,
+      max_grid_rows = 8,
+      search_budget = 24,
+      return_candidates = 8,
       max_pages = 4
     )
   )
@@ -690,7 +850,7 @@ run_demo <- function(
     scenarios = "all",
     project_dir = canonical_project_dir,
     output_dir = file.path(project_dir, "demo_output"),
-    layout_engine = "patchwork",
+    layout_engine = "grid",
     diagnostics = FALSE,
     text_size = 7,
     page_width_in = 8.27,
@@ -703,6 +863,8 @@ run_demo <- function(
 
   scenario_specs <- demo_scenarios()
   scenario_names <- normalize_requested_scenarios(scenarios)
+  built_plot_sets <- lapply(scenario_specs, function(spec) spec$builder())
+  scenario_start_numbers <- feedback_scenario_start_numbers(built_plot_sets)
   rows <- vector("list", length(scenario_names))
   results <- vector("list", length(scenario_names))
   plot_sets <- vector("list", length(scenario_names))
@@ -714,7 +876,11 @@ run_demo <- function(
     spec <- scenario_specs[[scenario_name]]
     message("Running demo scenario: ", spec$label)
 
-    plots <- spec$builder()
+    plots <- built_plot_sets[[scenario_name]]
+    plots <- label_feedback_plots(
+      plots,
+      first_plot_number = scenario_start_numbers[[scenario_name]]
+    )
     list2env(plots, envir = globalenv())
     plot_sets[[scenario_name]] <- plots
 
@@ -739,20 +905,49 @@ run_demo <- function(
       verbose = verbose
     )
 
-    rows[[scenario_index]] <- write_layout_result(
+    diagnostic_paths <- write_layout_diagnostics(
       layout_result = layout_result,
       output_dir = output_dir,
       prefix = spec$prefix,
-      page_width_in = page_width_in,
-      page_height_in = page_height_in,
-      text_size = text_size,
       label = spec$label,
       diagnostics = diagnostics
     )
     results[[scenario_name]] <- layout_result
+
+    rows[[scenario_index]] <- data.frame(
+      scenario = spec$label,
+      prefix = spec$prefix,
+      pdf = NA_character_,
+      plot_diagnostics = diagnostic_paths$plot_diagnostics,
+      layout_diagnostics = diagnostic_paths$layout_diagnostics,
+      patchwork_code = diagnostic_paths$patchwork_code,
+      warnings = diagnostic_paths$warnings,
+      n_pages = length(layout_result$pages),
+      n_warnings = length(layout_result$warnings),
+      stringsAsFactors = FALSE
+    )
   }
 
+  all_scenarios_selected <- identical(scenario_names, names(scenario_specs))
+  canonical_output_dir <- file.path(project_dir, "demo_output")
+  canonical_run <- all_scenarios_selected && same_normalized_path(output_dir, canonical_output_dir)
+  pdf_filename <- if (all_scenarios_selected) {
+    "layout_feedback.pdf"
+  } else {
+    paste0("layout_feedback_", paste(scenario_names, collapse = "-"), ".pdf")
+  }
+  feedback_pdf <- write_feedback_pdf(
+    layout_results = results,
+    output_dir = output_dir,
+    filename = pdf_filename,
+    page_width_in = page_width_in,
+    page_height_in = page_height_in,
+    text_size = text_size,
+    archive_previous = canonical_run
+  )
+
   index <- do.call(rbind, rows)
+  index$pdf <- feedback_pdf
   if (diagnostics) {
     index_filename <- file.path(output_dir, "demo_report_index.tsv")
     utils::write.table(index, index_filename, sep = "\t", quote = FALSE, row.names = FALSE)
@@ -777,7 +972,7 @@ run_demo <- function(
 parse_demo_args <- function(args = commandArgs(trailingOnly = TRUE)) {
   scenario <- "all"
   output_dir <- NULL
-  layout_engine <- "patchwork"
+  layout_engine <- "grid"
   diagnostics <- FALSE
 
   for (arg in args) {

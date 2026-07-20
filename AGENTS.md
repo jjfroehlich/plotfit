@@ -2,14 +2,27 @@
 
 ## Collaboration Style
 
-The user often gives iterative visual feedback using demo plot numbers, for
-example "plot 6 can be half as tall" or "plot 8 can be smaller in both
-dimensions." Treat those numbers as references to the current rendered output,
-not identifiers that may be hard-coded.
+The user often gives iterative visual feedback using the globally unique
+`(pN)` identifiers printed in plot titles, for example "p6 can be half as
+tall" or "p8 can be smaller in both dimensions." Treat those identifiers as
+references to the current rendered output, not values that may be hard-coded.
+
+Size feedback is approximate and directional. Interpret a comment such as
+"p1 1/2 width, 2/3 height" as asking for p1's next visible rendered footprint
+to be roughly one-half of its current rendered width and roughly two-thirds of
+its current rendered height. Apply the two multipliers independently to the
+current whole visible plot footprint (panel, axes, labels, title, and legend),
+not to the page, grid cell, data range, or an absolute millimetre size. A
+percentage such as 150% means about 1.5 times the current dimension. If only
+one dimension is mentioned, leave the other approximately unchanged. These
+ratios describe a target neighbourhood, not exact constraints or permission
+for per-plot overrides; preserve readability and translate the direction into
+general measurable rules.
 
 When receiving visual feedback:
 
-1. Inspect the current rendered PDF or PNG first when possible.
+1. Compare the current and immediately previous rendered PDFs first when
+   possible.
 2. Interpret size comments as relative to the current rendered size unless the
    user explicitly says otherwise.
 3. Translate the feedback into automatic rules based on measurable plot
@@ -22,8 +35,8 @@ When receiving visual feedback:
    heights, or scale factors may appear in generated patchwork code only as
    optimizer output.
 6. Add or update tests for the generalized rule being changed.
-7. Regenerate the demo PDF and render a preview after layout changes so the
-   result can be visually inspected.
+7. Regenerate the unified demo PDF and render every page after layout changes
+   so the result can be visually inspected.
 
 ## Product Rules
 
@@ -71,7 +84,8 @@ Keep one package, one demo script, and one README:
 - `R/layout-search.R`
 - `R/output.R`
 - `scripts/demo.R`
-- `demo_output/*.pdf`
+- `demo_output/layout_feedback.pdf`
+- `demo_output/previous/layout_feedback.pdf`
 - `man/figures/readme-layout-comparison.png`
 
 Do not restore wrapper demo scripts, old implementation plans, transient
@@ -80,22 +94,29 @@ diagnostics, or `tmp/` previews as tracked project files.
 ## Demo Workflow
 
 Use `scripts/demo.R` as the only demo entry point. It should build the original
-feedback plots, the generalization feedback plots, and stress-test plots from
-ordinary ggplot objects.
+feedback plots, the generalization feedback plots, stress-test plots, and an
+additional set of extreme plots from ordinary ggplot objects. All plots share
+one globally unique `(pN)` sequence in their visible titles so feedback remains
+unambiguous across pages.
 
 Default demo output should be only:
 
-- `demo_output/original_feedback.pdf`
-- `demo_output/generalization_feedback.pdf`
-- `demo_output/real_world_stress.pdf`
+- `demo_output/layout_feedback.pdf`
+- `demo_output/previous/layout_feedback.pdf`
 - `man/figures/readme-layout-comparison.png`
+
+A canonical all-scenarios run must copy the existing feedback PDF to the
+`previous/` path immediately before replacing it. Scenario-only and temporary
+runs must use a separate PDF name or output directory, retain the canonical
+global `(pN)` identifiers, and must not rotate the canonical comparison pair.
 
 Use `--diagnostics` only when TSV diagnostics, warnings, or generated
 patchwork code are intentionally needed.
 
-For visual PDF review, prefer `layout_engine = "grid"`. Patchwork output stays
-the backward-compatible default API engine and is useful for editable code, but
-grid output is the high-fidelity physical-sizing target.
+For visual PDF review and the default demo, use `layout_engine = "grid"`.
+Patchwork output stays the backward-compatible default package API engine and
+is useful for editable code, but grid output is the high-fidelity
+physical-sizing target.
 
 ## Verification Commands
 

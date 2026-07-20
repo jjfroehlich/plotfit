@@ -129,16 +129,25 @@ Run the single demo script:
 
 Default output:
 
-- `demo_output/original_feedback.pdf`
-- `demo_output/generalization_feedback.pdf`
-- `demo_output/real_world_stress.pdf`
+- `demo_output/layout_feedback.pdf`
+- `demo_output/previous/layout_feedback.pdf`
 - `man/figures/readme-layout-comparison.png`
+
+The unified feedback PDF numbers every plot globally in its title (`p1`, `p2`,
+and so on). Before a canonical all-scenarios run replaces the PDF, the existing
+version is copied to `demo_output/previous/` for side-by-side review. The demo
+uses the high-fidelity grid renderer by default; the package API still returns
+editable patchwork output by default.
 
 Run one scenario:
 
 ```powershell
 & 'C:\Program Files\R\R-4.2.2\bin\Rscript.exe' scripts\demo.R --scenario=generalization
 ```
+
+This writes `demo_output/layout_feedback_generalization.pdf`. Focused scenario
+PDFs keep the same global plot identifiers as the unified PDF (here `p9` to
+`p16`) and do not rotate the canonical current/previous comparison pair.
 
 Write optional diagnostics, warnings, and generated patchwork code:
 

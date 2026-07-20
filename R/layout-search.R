@@ -613,6 +613,15 @@ score_layout_page <- function(layout_page, widths, heights, fit_functions, page_
       effective_panel_width_mm = scalar_or_default(fit$effective_panel_width_mm, fit$panel_width_mm),
       effective_panel_height_mm = scalar_or_default(fit$effective_panel_height_mm, fit$panel_height_mm),
       unused_panel_area_mm2 = scalar_or_default(fit$unused_panel_area_mm2, 0),
+      n_marks_per_panel = scalar_or_default(fit$n_marks_per_panel, NA_real_),
+      n_point_marks_per_panel = scalar_or_default(fit$n_point_marks_per_panel, NA_real_),
+      n_nonempty_text_labels = scalar_or_default(fit$n_nonempty_text_labels, NA_real_),
+      n_panel_rows = scalar_or_default(fit$n_panel_rows, 1L),
+      n_panel_cols = scalar_or_default(fit$n_panel_cols, 1L),
+      n_panels = scalar_or_default(fit$n_panels, 1L),
+      legend_width_mm = scalar_or_default(fit$legend_width_mm, 0),
+      legend_height_mm = scalar_or_default(fit$legend_height_mm, 0),
+      legend_area_mm2 = scalar_or_default(fit$legend_area_mm2, 0),
       min_x_label_gap_mm = fit$min_x_label_gap_mm,
       min_y_label_gap_mm = fit$min_y_label_gap_mm,
       label_gap_loss = fit$label_gap_loss,
@@ -770,27 +779,55 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
   stop_reason <- "candidate_space_exhausted"
   stop_requested <- FALSE
 
-  for (assignment_index in seq_along(assignments)) {
-    if (length(scored_candidates) >= candidate_budget) {
-      break
-    }
-
-    generated_candidates <- generate_layout_candidates_for_assignment(
-      assignment = assignments[[assignment_index]],
+  candidates_by_assignment <- lapply(assignments, function(assignment) {
+    generate_layout_candidates_for_assignment(
+      assignment = assignment,
       frontiers = frontiers,
       max_grid_cols = preferences$max_grid_cols,
       max_grid_rows = preferences$max_grid_rows,
       keep_plot_order = TRUE,
       search_budget = preferences$search_budget
     )
-    generated_count <- generated_count + length(generated_candidates)
+  })
+  generated_count <- sum(vapply(candidates_by_assignment, length, integer(1)))
+  primary_quota <- if (length(candidates_by_assignment) == 1) {
+    candidate_budget
+  } else {
+    ceiling(candidate_budget / 2)
+  }
+  candidate_queue <- utils::head(candidates_by_assignment[[1]], primary_quota)
 
-    for (generated_index in seq_along(generated_candidates)) {
-      if (length(scored_candidates) >= candidate_budget) {
+  if (length(candidates_by_assignment) > 1 && length(candidate_queue) < candidate_budget) {
+    alternative_candidates <- candidates_by_assignment[-1]
+    max_alternative_candidates <- max(vapply(alternative_candidates, length, integer(1)))
+    for (generated_index in seq_len(max_alternative_candidates)) {
+      for (assignment_index in seq_along(alternative_candidates)) {
+        generated_candidates <- alternative_candidates[[assignment_index]]
+        if (generated_index <= length(generated_candidates)) {
+          candidate_queue[[length(candidate_queue) + 1L]] <- generated_candidates[[generated_index]]
+        }
+        if (length(candidate_queue) >= candidate_budget) {
+          break
+        }
+      }
+      if (length(candidate_queue) >= candidate_budget) {
         break
       }
+    }
+  }
 
-      candidate <- generated_candidates[[generated_index]]
+  if (length(candidate_queue) < candidate_budget) {
+    used_primary <- min(primary_quota, length(candidates_by_assignment[[1]]))
+    remaining_primary <- if (used_primary < length(candidates_by_assignment[[1]])) {
+      candidates_by_assignment[[1]][seq.int(used_primary + 1L, length(candidates_by_assignment[[1]]))]
+    } else {
+      list()
+    }
+    candidate_queue <- c(candidate_queue, remaining_primary)
+  }
+  candidate_queue <- utils::head(candidate_queue, candidate_budget)
+
+  for (candidate in candidate_queue) {
       candidate$candidate_id <- candidate_id
 
       scored_candidate <- score_layout_candidate(
@@ -843,10 +880,6 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
       if (stop_requested) {
         break
       }
-    }
-    if (stop_requested) {
-      break
-    }
   }
 
   if (length(scored_candidates) == 0) {

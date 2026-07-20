@@ -133,3 +133,93 @@ test_that("axis gap estimation uses neighbouring label positions", {
   expect_equal(even_gap$violation_mm, 0)
   expect_gt(crowded_gap$violation_mm, 0)
 })
+
+test_that("point-mark density continuously expands physical panel limits", {
+  preferences <- list(min_panel_width_mm = 20, min_panel_height_mm = 10)
+  sparse_profile <- list(
+    geometry = list(n_points_per_panel_in_point_layers = 500)
+  )
+  medium_profile <- list(
+    geometry = list(n_points_per_panel_in_point_layers = 1000)
+  )
+  dense_profile <- list(
+    geometry = list(n_points_per_panel_in_point_layers = 6000)
+  )
+
+  sparse <- plotfit:::adjusted_panel_limits_for_density(sparse_profile, preferences)
+  medium <- plotfit:::adjusted_panel_limits_for_density(medium_profile, preferences)
+  dense <- plotfit:::adjusted_panel_limits_for_density(dense_profile, preferences)
+
+  expect_equal(sparse$density_factor, 1)
+  expect_equal(medium$density_factor, 2)
+  expect_equal(dense$density_factor, 2.5)
+  expect_equal(sparse$hard_density_factor, 1)
+  expect_equal(medium$hard_density_factor, 1.5)
+  expect_equal(dense$hard_density_factor, 1.5)
+  expect_lt(sparse$min_panel_width_mm, medium$min_panel_width_mm)
+  expect_equal(medium$min_panel_width_mm, dense$min_panel_width_mm)
+  expect_lt(medium$preferred_panel_width_mm, dense$preferred_panel_width_mm)
+})
+
+test_that("box and violin geometry receive a larger soft physical target", {
+  preferences <- list(min_panel_width_mm = 20, min_panel_height_mm = 10)
+  profile <- list(
+    geometry = list(
+      n_points_per_panel_in_point_layers = 32,
+      geom_classes = c("GeomBoxplot", "GeomPoint")
+    )
+  )
+
+  limits <- plotfit:::adjusted_panel_limits_for_density(profile, preferences)
+
+  expect_equal(limits$density_factor, 1)
+  expect_equal(limits$distribution_factor, 3)
+  expect_equal(limits$hard_density_factor, 1)
+  expect_equal(limits$preferred_panel_width_mm, 51)
+  expect_equal(limits$preferred_panel_height_mm, 25.5)
+})
+
+test_that("multi-row horizontal legends create a panel-balance target", {
+  device_state <- plotfit:::open_measurement_device(
+    device = "pdf",
+    width_in = 8.27,
+    height_in = 11.69,
+    base_family = "Helvetica",
+    base_size = 7
+  )
+  on.exit(plotfit:::close_measurement_device(device_state), add = TRUE)
+
+  groups <- paste("Arm", LETTERS[seq_len(12)])
+  legend_data <- data.frame(
+    x = rep(seq_len(10), times = 12),
+    y = rep(seq_len(12), each = 10) + stats::rnorm(120, sd = 0.1),
+    group = factor(rep(groups, each = 10), levels = groups)
+  )
+  plot <- ggplot2::ggplot(legend_data, ggplot2::aes(x, y, colour = group)) +
+    ggplot2::geom_line() +
+    ggplot2::theme(aspect.ratio = 0.7, legend.position = "bottom") +
+    ggplot2::guides(colour = ggplot2::guide_legend(nrow = 3, byrow = TRUE))
+  profile <- plotfit:::measure_plot_profile(
+    plot = plot,
+    plot_id = "many_legend_entries",
+    plot_index = 1,
+    page_spec = list(width_mm = 210, height_mm = 297),
+    measurement_spec = list(base_size = 7, base_family = "Helvetica")
+  )
+
+  targets <- plotfit:::horizontal_legend_panel_targets(profile)
+  cramped <- plotfit:::estimate_legend_loss(profile, 210, 40, 20, 14)
+  balanced <- plotfit:::estimate_legend_loss(
+    profile,
+    210,
+    80,
+    targets$width_mm,
+    targets$height_mm
+  )
+
+  expect_gt(profile$geometry$legend_width_mm, 0)
+  expect_gt(profile$geometry$legend_height_mm, 0)
+  expect_gt(targets$width_mm, 40)
+  expect_gt(targets$height_mm, 25)
+  expect_gt(cramped$legend_loss, balanced$legend_loss)
+})

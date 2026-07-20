@@ -172,21 +172,24 @@ infer_inner_plot_scales <- function(plot_list, diagnostics = NULL) {
 
 infer_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
   hard_loss <- scalar_or_default(diagnostic$hard_loss, 0)
-  if (is.finite(hard_loss) && hard_loss > 0) {
+  label_gap_loss <- scalar_or_default(diagnostic$label_gap_loss, NA_real_)
+  panel_minimum_loss <- scalar_or_default(diagnostic$panel_minimum_loss, NA_real_)
+  facet_loss <- scalar_or_default(diagnostic$facet_loss, NA_real_)
+  label_only_hard_violation <- is.finite(label_gap_loss) && label_gap_loss > 0 &&
+    is.finite(panel_minimum_loss) && panel_minimum_loss <= 0 &&
+    is.finite(facet_loss) && facet_loss <= 0
+  if (is.finite(hard_loss) && hard_loss > 0 && !label_only_hard_violation) {
     return(list(scale_x = 1, scale_y = 1))
   }
 
-  measured_scale <- infer_measured_inner_plot_scale(diagnostic)
   structural_scale <- infer_structural_inner_plot_scale(plot, diagnostic)
+  scale <- structural_scale
 
-  if (!is.null(measured_scale)) {
-    return(list(
-      scale_x = min(measured_scale$scale_x, structural_scale$scale_x),
-      scale_y = min(measured_scale$scale_y, structural_scale$scale_y)
-    ))
-  }
-
-  structural_scale
+  structural_floor <- infer_structural_inner_plot_floor(plot, diagnostic)
+  list(
+    scale_x = min(1, max(scale$scale_x, structural_floor$scale_x)),
+    scale_y = min(1, max(scale$scale_y, structural_floor$scale_y))
+  )
 }
 
 infer_measured_inner_plot_scale <- function(diagnostic = data.frame()) {
@@ -252,56 +255,174 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
   aspect <- infer_theme_aspect_ratio(plot)
   geom_classes <- vapply(plot$layers, function(layer) class(layer$geom)[1], character(1))
   has_text_geom <- any(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
+  has_point_geom <- any(grepl("GeomPoint|GeomJitter|GeomDotplot", geom_classes))
   has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
+  has_ribbon_geom <- any(grepl("GeomRibbon|GeomArea", geom_classes))
   has_bar_geom <- any(grepl("GeomBar|GeomCol|GeomHistogram", geom_classes))
-  external_legend_position <- plot_external_legend_position(plot)
-  has_external_legend <- !is.na(external_legend_position)
-  has_bottom_or_top_legend <- external_legend_position %in% c("bottom", "top")
+  has_boxplot_geom <- any(grepl("GeomBoxplot", geom_classes))
+  has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
+  has_interval_geom <- any(grepl("GeomPointrange|GeomErrorbar|GeomLinerange|GeomCrossbar", geom_classes))
+  has_reference_line <- any(grepl("GeomHline|GeomVline|GeomAbline", geom_classes))
   has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
-  data_density_loss <- scalar_or_default(diagnostic$data_density_loss, 0)
-  density_warning <- "warning" %in% names(diagnostic) &&
-    any(grepl("Dense data heuristic", diagnostic$warning))
-
-  if (is.finite(aspect) && aspect >= 0.75) {
-    if (has_text_geom) {
-      scale_x <- min(scale_x, 0.5)
-      scale_y <- min(scale_y, 0.5)
-    } else if (has_bottom_or_top_legend) {
-      scale_x <- min(scale_x, 0.5)
-      scale_y <- min(scale_y, 0.5)
-    } else if (has_external_legend) {
-      scale_x <- min(scale_x, 2 / 3)
-      scale_y <- min(scale_y, 2 / 3)
-    } else {
-      scale_x <- min(scale_x, 2 / 3)
-      scale_y <- min(scale_y, 0.5)
-    }
-  }
+  has_horizontal_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
+  n_marks_per_panel <- scalar_or_default(diagnostic$n_marks_per_panel, NA_real_)
+  n_nonempty_text_labels <- scalar_or_default(diagnostic$n_nonempty_text_labels, NA_real_)
+  n_panel_rows <- scalar_or_default(diagnostic$n_panel_rows, 1)
+  n_panel_cols <- scalar_or_default(diagnostic$n_panel_cols, 1)
+  n_panels <- scalar_or_default(diagnostic$n_panels, 1)
+  fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, 0)
+  label_gap_loss <- scalar_or_default(diagnostic$label_gap_loss, 0)
+  panel_minimum_loss <- scalar_or_default(diagnostic$panel_minimum_loss, 0)
+  facet_loss <- scalar_or_default(diagnostic$facet_loss, 0)
+  label_only_hard_violation <- label_gap_loss > 0 &&
+    panel_minimum_loss <= 0 && facet_loss <= 0
 
   if (plot_is_faceted(plot)) {
     if (has_bar_geom) {
-      scale_x <- min(scale_x, 2 / 3)
+      scale_x <- min(scale_x, 0.5)
       scale_y <- min(scale_y, 0.5)
-    } else {
-      scale_x <- min(scale_x, 0.8)
-      scale_y <- min(scale_y, 2 / 3)
+    } else if (has_tile_geom && has_rotated_x_labels) {
+      scale_x <- min(scale_x, 4 / 9)
+      scale_y <- min(scale_y, 0.75)
+    } else if (has_point_geom) {
+      if (is.finite(n_panels) && n_panels >= 12 &&
+          is.finite(n_panel_rows) && is.finite(n_panel_cols) &&
+          n_panel_rows > n_panel_cols) {
+        scale_x <- min(scale_x, 1 / 3)
+        scale_y <- min(scale_y, 0.75)
+      } else {
+        scale_y <- min(scale_y, 0.5)
+      }
     }
   } else if (has_line_geom) {
-    scale_x <- min(scale_x, 2 / 3)
+    line_scale_x <- if (has_point_geom) {
+      1
+    } else if (has_ribbon_geom) {
+      4 / 9
+    } else {
+      2 / 3
+    }
+    scale_x <- min(scale_x, line_scale_x)
     scale_y <- min(scale_y, 0.5)
   }
 
-  if (has_rotated_x_labels) {
-    scale_x <- min(scale_x, 4 / 9)
+  if (has_interval_geom && !plot_is_faceted(plot)) {
+    interval_scale_x <- if (is.finite(n_marks_per_panel) && n_marks_per_panel >= 12 &&
+        is.finite(fixed_width_mm) && fixed_width_mm >= 40) {
+      0.25
+    } else {
+      0.75
+    }
+    scale_x <- min(scale_x, interval_scale_x)
     scale_y <- min(scale_y, 2 / 3)
   }
 
-  if (is.finite(aspect) && aspect < 0.75) {
-    if (density_warning || data_density_loss > 0) {
-      scale_x <- min(scale_x, 0.8)
-    } else if (!has_rotated_x_labels) {
-      scale_x <- min(scale_x, 0.5)
+  if (has_reference_line && has_point_geom && !has_text_geom &&
+      !has_interval_geom && !plot_is_faceted(plot) &&
+      is.finite(aspect) && aspect >= 0.75) {
+    scale_x <- min(scale_x, 0.5)
+    scale_y <- min(scale_y, 0.5)
+  }
+
+  if (is.finite(aspect) && aspect >= 0.75 && has_horizontal_legend) {
+    scale_x <- min(scale_x, 2 / 3)
+    scale_y <- min(scale_y, 2 / 3)
+  }
+
+  if (!plot_is_faceted(plot) && has_point_geom && !has_text_geom &&
+      !has_interval_geom && !has_reference_line &&
+      !plot_has_external_legend(plot) &&
+      is.finite(aspect) && aspect >= 0.75) {
+    scale_x <- min(scale_x, 2 / 3)
+    scale_y <- min(scale_y, 2 / 3)
+  }
+
+  if (!plot_is_faceted(plot) && has_bar_geom && !has_rotated_x_labels &&
+      is.finite(aspect) && aspect < 0.75) {
+    scale_x <- min(scale_x, 0.5)
+  }
+
+  if (has_boxplot_geom && has_rotated_x_labels && !has_horizontal_legend) {
+    scale_x <- min(scale_x, 2 / 3)
+    scale_y <- min(scale_y, 2 / 3)
+  }
+
+  if (has_text_geom && is.finite(aspect) && aspect >= 0.75) {
+    annotation_scale <- 1
+    if (is.finite(n_nonempty_text_labels) && n_nonempty_text_labels < 10) {
+      annotation_scale <- 2 / 3
     }
+    if (has_tile_geom && is.finite(n_nonempty_text_labels) && n_nonempty_text_labels >= 10) {
+      matrix_scale <- 0.25 + 0.25 * sqrt(36 / n_nonempty_text_labels)
+      matrix_scale <- min(0.625, max(0.375, matrix_scale))
+      annotation_scale <- min(annotation_scale, matrix_scale)
+    }
+    scale_x <- min(scale_x, annotation_scale)
+    scale_y <- min(scale_y, annotation_scale)
+  }
+
+  if (has_rotated_x_labels && has_bar_geom && is.finite(n_marks_per_panel)) {
+    sparse_bar_scale_x <- if (label_only_hard_violation) {
+      0.5
+    } else {
+      min(0.5, max(1 / 3, 8 / 27 + n_marks_per_panel / 135))
+    }
+    sparse_bar_scale_y <- if (label_only_hard_violation) {
+      0.5
+    } else {
+      min(1, max(2 / 3, 5 / 9 + n_marks_per_panel / 45))
+    }
+    scale_x <- min(scale_x, sparse_bar_scale_x)
+    scale_y <- min(scale_y, sparse_bar_scale_y)
+  }
+
+  list(scale_x = scale_x, scale_y = scale_y)
+}
+
+infer_structural_inner_plot_floor <- function(plot, diagnostic = data.frame()) {
+  scale_x <- 0
+  scale_y <- 0
+  geom_classes <- vapply(plot$layers, function(layer) class(layer$geom)[1], character(1))
+  has_point_geom <- any(grepl("GeomPoint|GeomJitter|GeomDotplot", geom_classes))
+  has_text_geom <- any(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
+  has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
+  has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
+  has_distribution_geom <- any(grepl("GeomBoxplot|GeomViolin", geom_classes))
+  has_violin_geom <- any(grepl("GeomViolin", geom_classes))
+  has_bottom_or_top_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
+  has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
+
+  n_point_marks_per_panel <- scalar_or_default(diagnostic$n_point_marks_per_panel, NA_real_)
+  if (is.finite(n_point_marks_per_panel) && n_point_marks_per_panel > 500) {
+    density_floor <- if (n_point_marks_per_panel <= 6000) {
+      density_pressure <- min(1, log2(n_point_marks_per_panel / 500) / log2(12))
+      0.8 + 0.2 * density_pressure
+    } else {
+      extreme_pressure <- min(1, log2(n_point_marks_per_panel / 6000) / log2(3))
+      1 - extreme_pressure / 3
+    }
+    scale_x <- max(scale_x, density_floor)
+    scale_y <- max(scale_y, density_floor)
+  }
+
+  if (has_distribution_geom && has_point_geom && !has_rotated_x_labels) {
+    scale_x <- 1
+    scale_y <- 1
+  }
+  if (has_distribution_geom && has_point_geom && has_bottom_or_top_legend) {
+    scale_x <- 1
+    scale_y <- 1
+  }
+  if (has_violin_geom) {
+    scale_x <- 1
+    scale_y <- 1
+  }
+  if (has_line_geom && has_bottom_or_top_legend) {
+    scale_x <- 1
+    scale_y <- 1
+  }
+  if (has_text_geom && !has_tile_geom) {
+    scale_y <- max(scale_y, 0.4)
   }
 
   list(scale_x = scale_x, scale_y = scale_y)
@@ -412,12 +533,18 @@ wrap_plot_with_inner_scale <- function(plot, scale_x = 1, scale_y = 1, anchor_y 
     bottom <- max(0.001, 1 - scale_y - top)
   }
 
-  patchwork::wrap_plots(
-    P = plot,
-    design = "\n###\n#P#\n###\n",
+  spacer <- patchwork::plot_spacer()
+  scaled_plot <- patchwork::wrap_plots(
+    c(
+      rep(list(spacer), 4),
+      list(plot),
+      rep(list(spacer), 4)
+    ),
+    ncol = 3,
     widths = c(left, scale_x, right),
     heights = c(top, scale_y, bottom)
   )
+  patchwork::wrap_elements(full = scaled_plot, clip = TRUE)
 }
 
 build_grid_page_grob <- function(
@@ -534,11 +661,19 @@ format_patchwork_code <- function(
     "    right <- max(0.001, 1 - scale_x - left)\n",
     "    top <- 0.001\n",
     "    bottom <- max(0.001, 1 - scale_y - top)\n",
-    "    titled_plot <- patchwork::wrap_plots(\n",
-    "      P = titled_plot,\n",
-    "      design = \"\\n###\\n#P#\\n###\\n\",\n",
-    "      widths = c(left, scale_x, right),\n",
-    "      heights = c(top, scale_y, bottom)\n",
+    "    spacer <- patchwork::plot_spacer()\n",
+    "    titled_plot <- patchwork::wrap_elements(\n",
+    "      full = patchwork::wrap_plots(\n",
+    "        c(\n",
+    "          rep(list(spacer), 4),\n",
+    "          list(titled_plot),\n",
+    "          rep(list(spacer), 4)\n",
+    "        ),\n",
+    "        ncol = 3,\n",
+    "        widths = c(left, scale_x, right),\n",
+    "        heights = c(top, scale_y, bottom)\n",
+    "      ),\n",
+    "      clip = TRUE\n",
     "    )\n",
     "  }\n",
     "  titled_plot\n",
@@ -726,6 +861,15 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate) 
         effective_panel_width_mm = NA_real_,
         effective_panel_height_mm = NA_real_,
         unused_panel_area_mm2 = NA_real_,
+        n_marks_per_panel = NA_real_,
+        n_point_marks_per_panel = NA_real_,
+        n_nonempty_text_labels = NA_real_,
+        n_panel_rows = NA_integer_,
+        n_panel_cols = NA_integer_,
+        n_panels = NA_integer_,
+        legend_width_mm = NA_real_,
+        legend_height_mm = NA_real_,
+        legend_area_mm2 = NA_real_,
         label_gap_loss = NA_real_,
         panel_minimum_loss = NA_real_,
         legend_loss = NA_real_,
@@ -754,6 +898,15 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate) 
       effective_panel_width_mm_at_selected_size = selected$effective_panel_width_mm[1],
       effective_panel_height_mm_at_selected_size = selected$effective_panel_height_mm[1],
       unused_panel_area_mm2_at_selected_size = selected$unused_panel_area_mm2[1],
+      n_marks_per_panel = selected$n_marks_per_panel[1],
+      n_point_marks_per_panel = selected$n_point_marks_per_panel[1],
+      n_nonempty_text_labels = selected$n_nonempty_text_labels[1],
+      n_panel_rows = selected$n_panel_rows[1],
+      n_panel_cols = selected$n_panel_cols[1],
+      n_panels = selected$n_panels[1],
+      legend_width_mm = selected$legend_width_mm[1],
+      legend_height_mm = selected$legend_height_mm[1],
+      legend_area_mm2 = selected$legend_area_mm2[1],
       label_gap_loss = selected$label_gap_loss[1],
       panel_minimum_loss = selected$panel_minimum_loss[1],
       legend_loss = selected$legend_loss[1],

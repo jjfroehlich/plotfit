@@ -90,7 +90,13 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     effective_panel$effective_panel_height_mm,
     preferences
   )
-  legend_loss <- estimate_legend_loss(profile, width_mm, height_mm)
+  legend_loss <- estimate_legend_loss(
+    profile,
+    width_mm,
+    height_mm,
+    effective_panel$effective_panel_width_mm,
+    effective_panel$effective_panel_height_mm
+  )
   data_density_loss <- estimate_data_density_loss(
     profile,
     effective_panel$effective_panel_width_mm,
@@ -147,6 +153,15 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     effective_panel_width_mm = effective_panel$effective_panel_width_mm,
     effective_panel_height_mm = effective_panel$effective_panel_height_mm,
     unused_panel_area_mm2 = effective_panel$unused_panel_area_mm2,
+    n_marks_per_panel = profile$density$n_points_per_panel_estimate,
+    n_point_marks_per_panel = profile$geometry$n_points_per_panel_in_point_layers,
+    n_nonempty_text_labels = profile$geometry$n_nonempty_text_labels,
+    n_panel_rows = profile$geometry$n_panel_rows,
+    n_panel_cols = profile$geometry$n_panel_cols,
+    n_panels = profile$geometry$n_panels,
+    legend_width_mm = profile$geometry$legend_width_mm,
+    legend_height_mm = profile$geometry$legend_height_mm,
+    legend_area_mm2 = profile$geometry$legend_area_mm2,
     min_x_label_gap_mm = axis_gaps$min_x_label_gap_mm,
     min_y_label_gap_mm = axis_gaps$min_y_label_gap_mm,
     label_gap_loss = axis_gaps$label_gap_loss,
@@ -373,7 +388,34 @@ estimate_facet_loss <- function(profile, panel_width_mm, panel_height_mm, prefer
   )
 }
 
-estimate_legend_loss <- function(profile, width_mm, height_mm) {
+horizontal_legend_panel_targets <- function(profile) {
+  legend_position <- profile$plot$theme$legend.position
+  has_horizontal_legend <- is.character(legend_position) &&
+    length(legend_position) > 0 && legend_position[1] %in% c("bottom", "top")
+  legend_width_mm <- scalar_or_default(profile$geometry$legend_width_mm, 0)
+  legend_height_mm <- scalar_or_default(profile$geometry$legend_height_mm, 0)
+
+  if (!has_horizontal_legend || legend_width_mm <= 0 || legend_height_mm <= 0) {
+    return(list(width_mm = 0, height_mm = 0))
+  }
+
+  target_width_mm <- 0.75 * legend_width_mm
+  target_aspect <- profile$geometry$target_panel_aspect
+  target_height_mm <- if (is.finite(target_aspect) && target_aspect > 0) {
+    target_width_mm * target_aspect
+  } else {
+    2 * legend_height_mm
+  }
+
+  list(width_mm = target_width_mm, height_mm = target_height_mm)
+}
+
+estimate_legend_loss <- function(
+    profile,
+    width_mm,
+    height_mm,
+    effective_panel_width_mm = Inf,
+    effective_panel_height_mm = Inf) {
   component_sizes <- profile$component_sizes
   legends <- component_sizes[component_sizes$type == "legend", , drop = FALSE]
 
@@ -384,57 +426,103 @@ estimate_legend_loss <- function(profile, width_mm, height_mm) {
   legend_area_mm2 <- sum(legends$width_mm * legends$height_mm)
   legend_area_fraction <- legend_area_mm2 / max(width_mm * height_mm, 1)
 
-  legend_loss <- if (legend_area_fraction > 0.25) {
+  area_loss <- if (legend_area_fraction > 0.25) {
     100 * (legend_area_fraction - 0.25)^2
   } else {
     0
   }
 
+  panel_targets <- horizontal_legend_panel_targets(profile)
+  panel_width_violation_mm <- max(0, panel_targets$width_mm - effective_panel_width_mm)
+  panel_height_violation_mm <- max(0, panel_targets$height_mm - effective_panel_height_mm)
+  panel_balance_loss <- 10 * (
+    panel_width_violation_mm^2 + panel_height_violation_mm^2
+  )
+  legend_loss <- area_loss + panel_balance_loss
+
   warnings <- character()
   if (legend_area_fraction > 0.25) {
     warnings <- paste0("Legend consumes ", round(100 * legend_area_fraction, 1), "% of allocated plot area.")
+  }
+  if (panel_width_violation_mm > 0 || panel_height_violation_mm > 0) {
+    warnings <- c(
+      warnings,
+      paste0(
+        "Horizontal legend leaves the effective panel about ",
+        round(max(panel_width_violation_mm, panel_height_violation_mm), 1),
+        " mm below its legend-balanced target."
+      )
+    )
   }
 
   list(legend_loss = legend_loss, warnings = warnings)
 }
 
 adjusted_panel_limits_for_density <- function(profile, preferences) {
-  n_points_per_panel <- profile$density$n_points_per_panel_estimate
+  n_points_per_panel <- profile$geometry$n_points_per_panel_in_point_layers
+  geom_classes <- profile$geometry$geom_classes
 
   density_factor <- 1
   if (is.finite(n_points_per_panel) && n_points_per_panel > 500) {
-    density_factor <- min(1.5, sqrt(n_points_per_panel / 500))
+    density_factor <- min(2.5, 1 + log2(n_points_per_panel / 500))
   }
 
-  height_factor <- density_factor
-  width_factor <- density_factor
-  preferred_height_multiplier <- 0.85
-  preferred_width_multiplier <- 0.85
+  has_violin_geom <- any(grepl("GeomViolin", geom_classes))
+  has_boxplot_geom <- any(grepl("GeomBoxplot", geom_classes))
+  axis_text_x <- profile$plot$theme$axis.text.x
+  axis_angle <- if (!is.null(axis_text_x) && !is.null(axis_text_x$angle)) {
+    suppressWarnings(as.numeric(axis_text_x$angle))
+  } else {
+    0
+  }
+  has_rotated_x_labels <- is.finite(axis_angle) && abs(axis_angle) > 0
+  legend_position <- profile$plot$theme$legend.position
+  has_horizontal_legend <- is.character(legend_position) &&
+    length(legend_position) > 0 && legend_position[1] %in% c("bottom", "top")
+  enlarge_distribution <- has_violin_geom ||
+    (has_boxplot_geom && (!has_rotated_x_labels || has_horizontal_legend))
+  distribution_factor <- if (enlarge_distribution) 3 else 1
+  preferred_size_factor <- max(density_factor, distribution_factor)
+
+  hard_density_factor <- min(1.5, density_factor)
+  preferred_panel_width_mm <- 0.85 * preferences$min_panel_width_mm * preferred_size_factor
+  preferred_panel_height_mm <- 0.85 * preferences$min_panel_height_mm * preferred_size_factor
+  legend_panel_targets <- horizontal_legend_panel_targets(profile)
+  preferred_panel_width_mm <- max(preferred_panel_width_mm, legend_panel_targets$width_mm)
+  preferred_panel_height_mm <- max(preferred_panel_height_mm, legend_panel_targets$height_mm)
 
   list(
-    min_panel_width_mm = preferences$min_panel_width_mm * width_factor,
-    min_panel_height_mm = preferences$min_panel_height_mm * height_factor,
+    min_panel_width_mm = preferences$min_panel_width_mm * hard_density_factor,
+    min_panel_height_mm = preferences$min_panel_height_mm * hard_density_factor,
     density_factor = density_factor,
-    preferred_width_multiplier = preferred_width_multiplier,
-    preferred_height_multiplier = preferred_height_multiplier
+    distribution_factor = distribution_factor,
+    preferred_size_factor = preferred_size_factor,
+    hard_density_factor = hard_density_factor,
+    preferred_panel_width_mm = preferred_panel_width_mm,
+    preferred_panel_height_mm = preferred_panel_height_mm,
+    preferred_width_multiplier = preferred_panel_width_mm /
+      (preferences$min_panel_width_mm * hard_density_factor),
+    preferred_height_multiplier = preferred_panel_height_mm /
+      (preferences$min_panel_height_mm * hard_density_factor)
   )
 }
 
 estimate_data_density_loss <- function(profile, panel_width_mm, panel_height_mm, preferences) {
   limits <- adjusted_panel_limits_for_density(profile, preferences)
 
-  if (limits$density_factor <= 1) {
+  if (limits$preferred_size_factor <= 1) {
     return(list(data_density_loss = 0, warnings = character()))
   }
 
-  width_violation_mm <- max(0, limits$min_panel_width_mm - panel_width_mm)
-  height_violation_mm <- max(0, limits$min_panel_height_mm - panel_height_mm)
+  width_violation_mm <- max(0, limits$preferred_panel_width_mm - panel_width_mm)
+  height_violation_mm <- max(0, limits$preferred_panel_height_mm - panel_height_mm)
 
-  data_density_loss <- 50 * (width_violation_mm^2 + height_violation_mm^2)
+  density_penalty <- if (limits$distribution_factor > limits$density_factor) 1 else 50
+  data_density_loss <- density_penalty * (width_violation_mm^2 + height_violation_mm^2)
 
   warnings <- paste0(
-    "Dense data heuristic inflated minimum panel size by ",
-    round(limits$density_factor, 2),
+    "Content-density heuristic inflated preferred panel size by ",
+    round(limits$preferred_size_factor, 2),
     "x."
   )
 

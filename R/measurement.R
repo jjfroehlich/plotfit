@@ -236,7 +236,7 @@ measure_plot_profile <- function(plot, plot_id, plot_index, page_spec, measureme
   unit_profile <- prepare_gtable_unit_profile(gt, components)
   panel_structure <- estimate_panel_structure(gt, built_plot)
   density <- estimate_data_density(plot, built_plot, panel_structure)
-  geometry <- estimate_plot_geometry(plot, built_plot, panel_structure)
+  geometry <- estimate_plot_geometry(plot, built_plot, panel_structure, component_sizes)
   axis_positions <- estimate_axis_label_positions(built_plot, text_grobs)
 
   list(
@@ -423,7 +423,11 @@ estimate_data_density <- function(plot, built_plot = NULL, panel_structure = NUL
   )
 }
 
-estimate_plot_geometry <- function(plot, built_plot = NULL, panel_structure = NULL) {
+estimate_plot_geometry <- function(
+    plot,
+    built_plot = NULL,
+    panel_structure = NULL,
+    component_sizes = NULL) {
   geom_classes <- vapply(plot$layers, function(layer) {
     class(layer$geom)[1]
   }, character(1))
@@ -434,9 +438,38 @@ estimate_plot_geometry <- function(plot, built_plot = NULL, panel_structure = NU
     point_count <- sum(vapply(built_plot$data[point_layer_indices], nrow, numeric(1)), na.rm = TRUE)
   }
 
+  nonempty_text_label_count <- 0
+  text_layer_indices <- which(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
+  if (!is.null(built_plot) && !is.null(built_plot$data) && length(text_layer_indices) > 0) {
+    nonempty_text_label_count <- sum(vapply(text_layer_indices, function(layer_index) {
+      layer_data <- built_plot$data[[layer_index]]
+      if (is.null(layer_data$label)) {
+        return(0)
+      }
+      labels <- as.character(layer_data$label)
+      sum(!is.na(labels) & nzchar(trimws(labels)))
+    }, numeric(1)), na.rm = TRUE)
+  }
+
   n_panels <- 1
   if (!is.null(panel_structure$n_panels) && is.finite(panel_structure$n_panels)) {
     n_panels <- max(1, panel_structure$n_panels)
+  }
+
+  n_panel_rows <- scalar_or_default(panel_structure$n_panel_rows, 1)
+  n_panel_cols <- scalar_or_default(panel_structure$n_panel_cols, 1)
+  legend_components <- if (!is.null(component_sizes) && "type" %in% names(component_sizes)) {
+    component_sizes[component_sizes$type == "legend" &
+      component_sizes$width_mm > 0 & component_sizes$height_mm > 0, , drop = FALSE]
+  } else {
+    data.frame()
+  }
+  legend_width_mm <- if (nrow(legend_components) > 0) max(legend_components$width_mm) else 0
+  legend_height_mm <- if (nrow(legend_components) > 0) max(legend_components$height_mm) else 0
+  legend_area_mm2 <- if (nrow(legend_components) > 0) {
+    sum(legend_components$width_mm * legend_components$height_mm)
+  } else {
+    0
   }
 
   target_panel_aspect <- infer_theme_aspect_ratio(plot)
@@ -450,6 +483,13 @@ estimate_plot_geometry <- function(plot, built_plot = NULL, panel_structure = NU
     is_faceted_scatter = FALSE,
     n_points_in_point_layers = point_count,
     n_points_per_panel_in_point_layers = point_count / n_panels,
+    n_nonempty_text_labels = nonempty_text_label_count,
+    n_panel_rows = as.integer(max(1, n_panel_rows)),
+    n_panel_cols = as.integer(max(1, n_panel_cols)),
+    n_panels = as.integer(n_panels),
+    legend_width_mm = legend_width_mm,
+    legend_height_mm = legend_height_mm,
+    legend_area_mm2 = legend_area_mm2,
     target_panel_aspect = target_panel_aspect,
     aspect_penalty = aspect_penalty
   )

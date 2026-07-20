@@ -29,15 +29,66 @@ test_that("unified demo script exposes the expected automatic scenarios", {
   expect_match(runner_source, "make_original_feedback_plots", fixed = TRUE)
   expect_match(runner_source, "make_generalization_feedback_plots", fixed = TRUE)
   expect_match(runner_source, "make_real_world_stress_plots", fixed = TRUE)
-  expect_match(runner_source, "original_feedback", fixed = TRUE)
-  expect_match(runner_source, "generalization_feedback", fixed = TRUE)
-  expect_match(runner_source, "real_world_stress", fixed = TRUE)
+  expect_match(runner_source, "make_extreme_feedback_plots", fixed = TRUE)
+  expect_match(runner_source, "label_feedback_plots", fixed = TRUE)
+  expect_match(runner_source, "layout_feedback.pdf", fixed = TRUE)
+  expect_match(runner_source, "archive_previous = canonical_run", fixed = TRUE)
   expect_match(runner_source, "--diagnostics", fixed = TRUE)
   expect_match(runner_source, "readme-layout-comparison.png", fixed = TRUE)
 })
 
+test_that("feedback titles are globally numbered and prior PDFs are preserved", {
+  runner_file <- file.path("scripts", "demo.R")
+  if (!file.exists(runner_file)) {
+    runner_file <- file.path("..", "..", "scripts", "demo.R")
+  }
+  skip_if_not(file.exists(runner_file))
 
-test_that("demo defaults to patchwork while preserving grid review option", {
+  demo_environment <- new.env(parent = globalenv())
+  sys.source(runner_file, envir = demo_environment)
+
+  plots <- list(
+    first_name = ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) +
+      ggplot2::geom_point() +
+      ggplot2::labs(title = "First"),
+    second_name = ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) +
+      ggplot2::geom_point() +
+      ggplot2::labs(title = "Second")
+  )
+  labelled <- demo_environment$label_feedback_plots(plots, first_plot_number = 9)
+
+  expect_equal(names(labelled), c("p9", "p10"))
+  expect_equal(labelled[[1]]$labels$title, "(p9) First")
+  expect_equal(labelled[[2]]$labels$title, "(p10) Second")
+
+  output_dir <- tempfile("plotfit-feedback-")
+  dir.create(output_dir, recursive = TRUE)
+  on.exit(unlink(output_dir, recursive = TRUE), add = TRUE)
+  current_pdf <- file.path(output_dir, "layout_feedback.pdf")
+  baseline_bytes <- charToRaw("reviewed baseline")
+  writeBin(baseline_bytes, current_pdf)
+
+  demo_environment$draw_layout_pages <- function(result) {
+    grid::grid.newpage()
+    grid::grid.draw(grid::rectGrob())
+  }
+  demo_environment$write_feedback_pdf(
+    layout_results = list(list(pages = list())),
+    output_dir = output_dir,
+    filename = "layout_feedback.pdf",
+    page_width_in = 2,
+    page_height_in = 2,
+    text_size = 7,
+    archive_previous = TRUE
+  )
+
+  previous_pdf <- file.path(output_dir, "previous", "layout_feedback.pdf")
+  expect_true(file.exists(previous_pdf))
+  expect_equal(readBin(previous_pdf, what = "raw", n = length(baseline_bytes)), baseline_bytes)
+})
+
+
+test_that("demo defaults to grid review while preserving an engine override", {
   runner_file <- file.path("scripts", "demo.R")
   if (!file.exists(runner_file)) {
     runner_file <- file.path("..", "..", "scripts", "demo.R")
@@ -47,8 +98,8 @@ test_that("demo defaults to patchwork while preserving grid review option", {
   runner_source <- paste(readLines(runner_file, warn = FALSE), collapse = "\n")
 
   expect_match(runner_source, "run_demo <- function", fixed = TRUE)
-  expect_match(runner_source, "layout_engine = \"patchwork\"", fixed = TRUE)
-  expect_match(runner_source, "layout_engine <- \"patchwork\"", fixed = TRUE)
+  expect_match(runner_source, "layout_engine = \"grid\"", fixed = TRUE)
+  expect_match(runner_source, "layout_engine <- \"grid\"", fixed = TRUE)
   expect_match(runner_source, "--layout-engine=", fixed = TRUE)
   expect_match(runner_source, "patchwork::patchworkGrob(optimized_page$patchwork)", fixed = TRUE)
 })
@@ -61,24 +112,24 @@ test_that("optimizer source contains no demo-specific plot sizing branches", {
   expect_gt(length(source_files), 0)
   source_text <- paste(unlist(lapply(source_files, readLines, warn = FALSE)), collapse = "\n")
 
-  forbidden_demo_tokens <- c(
-    "p1_iris_scatter",
-    "p2_mtcars_box_jitter",
-    "p3_diamond_histogram",
-    "p4_usarrests_pca",
-    "p5_diamond_violin",
-    "p6_mpg_faceted_scatter",
-    "p7_airquality_box_jitter",
-    "p8_mtcars_scatter",
-    "iris_scatter",
-    "mtcars_box_jitter",
-    "diamond_histogram",
-    "usarrests_pca",
-    "diamond_violin",
-    "mpg_faceted_scatter",
-    "airquality_box_jitter",
-    "mtcars_scatter"
+  runner_file <- file.path("scripts", "demo.R")
+  if (!file.exists(runner_file)) {
+    runner_file <- file.path("..", "..", "scripts", "demo.R")
+  }
+  demo_environment <- new.env(parent = asNamespace("ggplot2"))
+  sys.source(runner_file, envir = demo_environment)
+  scenario_specs <- demo_environment$demo_scenarios()
+  demo_plot_sets <- lapply(scenario_specs, function(spec) spec$builder())
+  expect_equal(
+    demo_environment$feedback_scenario_start_numbers(demo_plot_sets),
+    c(original = 1L, generalization = 9L, stress = 17L, extremes = 25L)
   )
+  forbidden_demo_tokens <- unique(c(
+    unlist(lapply(demo_plot_sets, names), use.names = FALSE),
+    unlist(lapply(demo_plot_sets, function(plots) {
+      vapply(plots, function(plot) plot$labels$title, character(1))
+    }), use.names = FALSE)
+  ))
 
   matches <- forbidden_demo_tokens[vapply(
     forbidden_demo_tokens,
