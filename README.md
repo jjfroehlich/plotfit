@@ -1,8 +1,8 @@
 # plotfit
 
-Automatic plot dimension optimization for ggplot PDF exports. 
+Automatic plot dimension optimization for PDF exports of many ggplots. 
 
-`plotfit` measures ggplot objects on a target-like PDF device (DIN A4 or Letter), and returns a suggested layout for the 'patchwork' package, where final plots will have optimal individual dimensions. 
+`plotfit` measures ggplot objects on a target-like PDF device, and returns a suggested layout for the 'patchwork' package, with the aim that individual plots will have optimal dimensions. The overall arrangement of plots and spacing between them is not optimized. 
 
 ![Before and after layout comparison](man/figures/readme-layout-comparison.png)
 
