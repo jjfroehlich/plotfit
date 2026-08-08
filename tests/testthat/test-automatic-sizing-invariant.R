@@ -88,7 +88,7 @@ test_that("feedback titles are globally numbered and prior PDFs are preserved", 
 })
 
 
-test_that("demo defaults to grid review while preserving an engine override", {
+test_that("demo defaults to patchwork review while preserving an engine override", {
   runner_file <- file.path("scripts", "demo.R")
   if (!file.exists(runner_file)) {
     runner_file <- file.path("..", "..", "scripts", "demo.R")
@@ -98,8 +98,8 @@ test_that("demo defaults to grid review while preserving an engine override", {
   runner_source <- paste(readLines(runner_file, warn = FALSE), collapse = "\n")
 
   expect_match(runner_source, "run_demo <- function", fixed = TRUE)
-  expect_match(runner_source, "layout_engine = \"grid\"", fixed = TRUE)
-  expect_match(runner_source, "layout_engine <- \"grid\"", fixed = TRUE)
+  expect_match(runner_source, "layout_engine = \"patchwork\"", fixed = TRUE)
+  expect_match(runner_source, "layout_engine <- \"patchwork\"", fixed = TRUE)
   expect_match(runner_source, "--layout-engine=", fixed = TRUE)
   expect_match(runner_source, "patchwork::patchworkGrob(optimized_page$patchwork)", fixed = TRUE)
 })
@@ -109,13 +109,14 @@ test_that("optimizer source contains no demo-specific plot sizing branches", {
   if (length(source_files) == 0) {
     source_files <- list.files(file.path("..", "..", "R"), pattern = "\\.R$", full.names = TRUE)
   }
-  expect_gt(length(source_files), 0)
+  skip_if(length(source_files) == 0, "repository source files are not available")
   source_text <- paste(unlist(lapply(source_files, readLines, warn = FALSE)), collapse = "\n")
 
   runner_file <- file.path("scripts", "demo.R")
   if (!file.exists(runner_file)) {
     runner_file <- file.path("..", "..", "scripts", "demo.R")
   }
+  skip_if_not(file.exists(runner_file))
   demo_environment <- new.env(parent = asNamespace("ggplot2"))
   sys.source(runner_file, envir = demo_environment)
   scenario_specs <- demo_environment$demo_scenarios()

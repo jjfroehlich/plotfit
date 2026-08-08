@@ -86,7 +86,7 @@ The optimizer keeps the input plots unchanged. It does not rotate labels, wrap l
 
 Automatic sizing rule: plot footprints must be inferred from the supplied ggplot objects and their measured grobs. Users should not provide per-plot widths, heights, scale factors, or footprint metadata. \code{plot_names} are identifiers for automatic search, diagnostics, and generated code; when \code{page_groups} is supplied they may additionally express narrative page membership, but never physical sizing. Numeric widths, heights, and scale factors that appear in generated patchwork code are optimizer output, not user input.
 
-Use \code{layout_engine = "grid"} for final visual PDF review when exact physical plot footprints matter. Use \code{layout_engine = "patchwork"} when editable patchwork objects are the primary deliverable. Patchwork code is still returned for both engines.
+Use \code{layout_engine = "patchwork"} for the primary editable workflow and for acceptance-testing the output users receive by default. Use \code{layout_engine = "grid"} as an optional diagnostic comparison when exact physical viewport rendering is needed. Patchwork objects and code are still returned for both engines.
 
 Limitations: exact visual collision detection is not guaranteed; text measurements are device-dependent; PDF viewers and font substitution may change appearance slightly; inside legends and in-panel annotations are hard to assess; dense data readability is approximated; facet-heavy plots may still need manual review; final PDF visual inspection is recommended.
 }
@@ -94,7 +94,7 @@ Limitations: exact visual collision detection is not guaranteed; text measuremen
 \dontrun{
 plots <- list(p1 = p1, p2 = p2, p3 = p3)
 
-layout_result <- suggest_patchwork_layout(plots, layout_engine = "grid")
+layout_result <- suggest_patchwork_layout(plots)
 
 pdf("report.pdf", width = 8.27, height = 11.69)
 draw_layout_pages(layout_result)

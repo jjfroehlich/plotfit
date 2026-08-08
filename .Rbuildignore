@@ -1,3 +1,6 @@
+^\.git$
+^\.gitignore$
+^AGENTS\.md$
 ^scripts$
 ^demo_output$
 ^tmp$

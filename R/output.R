@@ -258,6 +258,7 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
   has_point_geom <- any(grepl("GeomPoint|GeomJitter|GeomDotplot", geom_classes))
   has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
   has_ribbon_geom <- any(grepl("GeomRibbon|GeomArea", geom_classes))
+  has_density_geom <- any(grepl("GeomDensity", geom_classes))
   has_bar_geom <- any(grepl("GeomBar|GeomCol|GeomHistogram", geom_classes))
   has_boxplot_geom <- any(grepl("GeomBoxplot", geom_classes))
   has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
@@ -266,11 +267,16 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
   has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
   has_horizontal_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
   n_marks_per_panel <- scalar_or_default(diagnostic$n_marks_per_panel, NA_real_)
+  n_point_marks_per_panel <- scalar_or_default(diagnostic$n_point_marks_per_panel, NA_real_)
   n_nonempty_text_labels <- scalar_or_default(diagnostic$n_nonempty_text_labels, NA_real_)
   n_panel_rows <- scalar_or_default(diagnostic$n_panel_rows, 1)
   n_panel_cols <- scalar_or_default(diagnostic$n_panel_cols, 1)
   n_panels <- scalar_or_default(diagnostic$n_panels, 1)
   fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, 0)
+  allocated_width_mm <- scalar_or_default(diagnostic$allocated_width_mm, NA_real_)
+  allocated_height_mm <- scalar_or_default(diagnostic$allocated_height_mm, NA_real_)
+  legend_width_mm <- scalar_or_default(diagnostic$legend_width_mm, NA_real_)
+  legend_height_mm <- scalar_or_default(diagnostic$legend_height_mm, NA_real_)
   label_gap_loss <- scalar_or_default(diagnostic$label_gap_loss, 0)
   panel_minimum_loss <- scalar_or_default(diagnostic$panel_minimum_loss, 0)
   facet_loss <- scalar_or_default(diagnostic$facet_loss, 0)
@@ -282,8 +288,13 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
       scale_x <- min(scale_x, 0.5)
       scale_y <- min(scale_y, 0.5)
     } else if (has_tile_geom && has_rotated_x_labels) {
-      scale_x <- min(scale_x, 4 / 9)
-      scale_y <- min(scale_y, 0.75)
+      heatmap_density_pressure <- if (is.finite(n_marks_per_panel)) {
+        min(1, max(0, log2(max(30, n_marks_per_panel) / 30) / 2))
+      } else {
+        0
+      }
+      scale_x <- min(scale_x, 4 / 9 + heatmap_density_pressure / 9)
+      scale_y <- min(scale_y, 0.75 + 0.15 * heatmap_density_pressure)
     } else if (has_point_geom) {
       if (is.finite(n_panels) && n_panels >= 12 &&
           is.finite(n_panel_rows) && is.finite(n_panel_cols) &&
@@ -293,6 +304,12 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
       } else {
         scale_y <- min(scale_y, 0.5)
       }
+    } else if (has_line_geom) {
+      facet_line_scale <- min(0.9, max(0.75, 1 - 0.1 * sqrt(max(1, n_panels))))
+      label_gap_protection <- min(0.1, sqrt(max(0, label_gap_loss)))
+      facet_line_scale <- min(0.95, facet_line_scale + label_gap_protection)
+      scale_x <- min(scale_x, facet_line_scale)
+      scale_y <- min(scale_y, facet_line_scale)
     }
   } else if (has_line_geom) {
     line_scale_x <- if (has_point_geom) {
@@ -306,6 +323,21 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
     scale_y <- min(scale_y, 0.5)
   }
 
+  if (!plot_is_faceted(plot) && has_boxplot_geom && has_point_geom &&
+      !has_rotated_x_labels && !plot_has_external_legend(plot)) {
+    distribution_label_protection <- min(0.125, 0.1 * sqrt(max(0, label_gap_loss)))
+    scale_x <- min(scale_x, 0.5 + distribution_label_protection)
+  }
+
+  if (!plot_is_faceted(plot) && has_tile_geom && !has_text_geom) {
+    scale_x <- min(scale_x, 2 / 3)
+    scale_y <- min(scale_y, 2 / 3)
+  }
+
+  if (!plot_is_faceted(plot) && has_density_geom) {
+    scale_x <- min(scale_x, 2 / 3)
+  }
+
   if (has_interval_geom && !plot_is_faceted(plot)) {
     interval_scale_x <- if (is.finite(n_marks_per_panel) && n_marks_per_panel >= 12 &&
         is.finite(fixed_width_mm) && fixed_width_mm >= 40) {
@@ -313,8 +345,10 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
     } else {
       0.75
     }
+    long_label_interval <- is.finite(n_marks_per_panel) && n_marks_per_panel >= 12 &&
+      is.finite(fixed_width_mm) && fixed_width_mm >= 40
     scale_x <- min(scale_x, interval_scale_x)
-    scale_y <- min(scale_y, 2 / 3)
+    scale_y <- min(scale_y, if (long_label_interval) 0.75 else 2 / 3)
   }
 
   if (has_reference_line && has_point_geom && !has_text_geom &&
@@ -329,12 +363,31 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
     scale_y <- min(scale_y, 2 / 3)
   }
 
+  if (has_line_geom && has_horizontal_legend &&
+      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
+      is.finite(allocated_height_mm) && allocated_height_mm > 0 &&
+      is.finite(legend_width_mm) && legend_width_mm > 0 &&
+      is.finite(legend_height_mm) && legend_height_mm > 0) {
+    legend_row_pressure <- min(1, max(0, (legend_height_mm - 3) / 6))
+    legend_width_scale <- min(2 / 3, max(0.25, (legend_width_mm + 4) / allocated_width_mm))
+    legend_height_scale <- min(2 / 3, max(0.2, (legend_height_mm + 8) / allocated_height_mm))
+    scale_x <- min(scale_x, (1 - legend_row_pressure) * (2 / 3) +
+      legend_row_pressure * legend_width_scale)
+    scale_y <- min(scale_y, (1 - legend_row_pressure) * 0.5 +
+      legend_row_pressure * legend_height_scale)
+  }
+
   if (!plot_is_faceted(plot) && has_point_geom && !has_text_geom &&
       !has_interval_geom && !has_reference_line &&
       !plot_has_external_legend(plot) &&
       is.finite(aspect) && aspect >= 0.75) {
-    scale_x <- min(scale_x, 2 / 3)
-    scale_y <- min(scale_y, 2 / 3)
+    point_scale <- 2 / 3
+    if (is.finite(n_point_marks_per_panel) && n_point_marks_per_panel > 6000) {
+      saturation_pressure <- min(1, log2(n_point_marks_per_panel / 6000) / log2(3))
+      point_scale <- 2 / 3 - saturation_pressure / 3
+    }
+    scale_x <- min(scale_x, point_scale)
+    scale_y <- min(scale_y, point_scale)
   }
 
   if (!plot_is_faceted(plot) && has_bar_geom && !has_rotated_x_labels &&
@@ -363,7 +416,7 @@ infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
 
   if (has_rotated_x_labels && has_bar_geom && is.finite(n_marks_per_panel)) {
     sparse_bar_scale_x <- if (label_only_hard_violation) {
-      0.5
+      0.625
     } else {
       min(0.5, max(1 / 3, 8 / 27 + n_marks_per_panel / 135))
     }
@@ -387,10 +440,18 @@ infer_structural_inner_plot_floor <- function(plot, diagnostic = data.frame()) {
   has_text_geom <- any(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
   has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
   has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
+  has_interval_geom <- any(grepl("GeomPointrange|GeomErrorbar|GeomLinerange|GeomCrossbar", geom_classes))
   has_distribution_geom <- any(grepl("GeomBoxplot|GeomViolin", geom_classes))
   has_violin_geom <- any(grepl("GeomViolin", geom_classes))
   has_bottom_or_top_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
   has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
+
+  allocated_width_mm <- scalar_or_default(diagnostic$allocated_width_mm, NA_real_)
+  allocated_height_mm <- scalar_or_default(diagnostic$allocated_height_mm, NA_real_)
+  fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, NA_real_)
+  effective_panel_width_mm <- scalar_or_default(diagnostic$effective_panel_width_mm, NA_real_)
+  legend_width_mm <- scalar_or_default(diagnostic$legend_width_mm, NA_real_)
+  legend_height_mm <- scalar_or_default(diagnostic$legend_height_mm, NA_real_)
 
   n_point_marks_per_panel <- scalar_or_default(diagnostic$n_point_marks_per_panel, NA_real_)
   if (is.finite(n_point_marks_per_panel) && n_point_marks_per_panel > 500) {
@@ -399,14 +460,13 @@ infer_structural_inner_plot_floor <- function(plot, diagnostic = data.frame()) {
       0.8 + 0.2 * density_pressure
     } else {
       extreme_pressure <- min(1, log2(n_point_marks_per_panel / 6000) / log2(3))
-      1 - extreme_pressure / 3
+      1 - 2 * extreme_pressure / 3
     }
     scale_x <- max(scale_x, density_floor)
     scale_y <- max(scale_y, density_floor)
   }
 
   if (has_distribution_geom && has_point_geom && !has_rotated_x_labels) {
-    scale_x <- 1
     scale_y <- 1
   }
   if (has_distribution_geom && has_point_geom && has_bottom_or_top_legend) {
@@ -417,9 +477,21 @@ infer_structural_inner_plot_floor <- function(plot, diagnostic = data.frame()) {
     scale_x <- 1
     scale_y <- 1
   }
-  if (has_line_geom && has_bottom_or_top_legend) {
-    scale_x <- 1
-    scale_y <- 1
+  if (has_line_geom && has_bottom_or_top_legend &&
+      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
+      is.finite(allocated_height_mm) && allocated_height_mm > 0 &&
+      is.finite(legend_width_mm) && legend_width_mm > 0 &&
+      is.finite(legend_height_mm) && legend_height_mm > 0) {
+    scale_x <- max(scale_x, min(1, (legend_width_mm + 4) / allocated_width_mm))
+    scale_y <- max(scale_y, min(1, (legend_height_mm + 8) / allocated_height_mm))
+  }
+  if (has_interval_geom &&
+      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
+      is.finite(fixed_width_mm) && fixed_width_mm >= 0 &&
+      is.finite(effective_panel_width_mm) && effective_panel_width_mm > 0) {
+    retained_panel_width_mm <- max(15, 0.1 * effective_panel_width_mm)
+    interval_width_floor <- min(1, (fixed_width_mm + retained_panel_width_mm) / allocated_width_mm)
+    scale_x <- max(scale_x, interval_width_floor)
   }
   if (has_text_geom && !has_tile_geom) {
     scale_y <- max(scale_y, 0.4)

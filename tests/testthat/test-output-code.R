@@ -270,7 +270,7 @@ test_that("bottom legends on fixed-aspect plots keep a readable compact footprin
   expect_equal(scale$scale_y, 2 / 3)
 })
 
-test_that("line plots with horizontal legends preserve the full legend-bearing footprint", {
+test_that("line plots with horizontal legends use measured legend bounds", {
   plot <- ggplot2::ggplot(
     ggplot2::economics,
     ggplot2::aes(date, unemploy, colour = factor(round(date, "year")))
@@ -278,18 +278,23 @@ test_that("line plots with horizontal legends preserve the full legend-bearing f
     ggplot2::geom_line() +
     ggplot2::theme(aspect.ratio = 0.7, legend.position = "bottom")
   diagnostic <- data.frame(
-    allocated_width_mm = 100,
-    allocated_height_mm = 100,
+    allocated_width_mm = c(100, 210),
+    allocated_height_mm = c(100, 72.4),
     preferred_width_mm = 100,
     preferred_height_mm = 100,
     hard_loss = 0,
+    legend_width_mm = c(NA_real_, 96),
+    legend_height_mm = c(NA_real_, 9.4),
     stringsAsFactors = FALSE
   )
 
-  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
+  unmeasured <- plotfit:::infer_inner_plot_scale(plot, diagnostic[1, , drop = FALSE])
+  multirow <- plotfit:::infer_inner_plot_scale(plot, diagnostic[2, , drop = FALSE])
 
-  expect_equal(scale$scale_x, 1)
-  expect_equal(scale$scale_y, 1)
+  expect_equal(unmeasured$scale_x, 2 / 3)
+  expect_equal(unmeasured$scale_y, 0.5)
+  expect_equal(multirow$scale_x, 100 / 210)
+  expect_equal(multirow$scale_y, 17.4 / 72.4)
 })
 
 test_that("low-aspect diagnostics get width caps based on density pressure", {
@@ -377,6 +382,46 @@ test_that("ribbon lines and rotated faceted heatmaps get distinct compact footpr
   expect_equal(heatmap_scale$scale_y, 0.75)
 })
 
+test_that("dense faceted heatmaps grow continuously for legible cells", {
+  faceted_heatmap <- ggplot2::ggplot(
+    expand.grid(x = letters[1:10], y = letters[1:12], panel = c("A", "B")),
+    ggplot2::aes(x, y, fill = as.numeric(x))
+  ) +
+    ggplot2::geom_tile() +
+    ggplot2::facet_wrap(~panel) +
+    ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+  diagnostic <- data.frame(
+    hard_loss = 0,
+    n_marks_per_panel = 120,
+    stringsAsFactors = FALSE
+  )
+
+  scale <- plotfit:::infer_inner_plot_scale(faceted_heatmap, diagnostic)
+
+  expect_equal(scale$scale_x, 5 / 9)
+  expect_equal(scale$scale_y, 0.9)
+})
+
+test_that("faceted line plots compact with panel count", {
+  faceted_line <- ggplot2::ggplot(
+    expand.grid(x = seq_len(10), panel = factor(seq_len(4))),
+    ggplot2::aes(x, x)
+  ) +
+    ggplot2::geom_line() +
+    ggplot2::facet_wrap(~panel, ncol = 2)
+  diagnostic <- data.frame(
+    hard_loss = 0,
+    n_panels = 4,
+    label_gap_loss = 0.08,
+    stringsAsFactors = FALSE
+  )
+
+  scale <- plotfit:::infer_inner_plot_scale(faceted_line, diagnostic)
+
+  expect_equal(scale$scale_x, 0.9)
+  expect_equal(scale$scale_y, 0.9)
+})
+
 test_that("sparse rotated bars use measured mark count on both axes", {
   plot <- ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) +
     ggplot2::geom_col() +
@@ -417,7 +462,7 @@ test_that("unresolvable rotated-label violations use a compact fallback", {
 
   scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
-  expect_equal(scale$scale_x, 0.5)
+  expect_equal(scale$scale_x, 0.625)
   expect_equal(scale$scale_y, 0.5)
 })
 
@@ -470,7 +515,7 @@ test_that("interval and reference-line point plots get distinct footprints", {
   expect_equal(reference_scale$scale_y, 0.5)
 })
 
-test_that("many long-label intervals use their fixed-width burden to compact horizontally", {
+test_that("long-label intervals preserve a compact visible data panel", {
   interval_data <- data.frame(
     endpoint = factor(paste("Long endpoint", seq_len(14))),
     estimate = seq_len(14),
@@ -487,16 +532,18 @@ test_that("many long-label intervals use their fixed-width burden to compact hor
     hard_loss = 0,
     n_marks_per_panel = 14,
     fixed_width_mm = 55,
+    effective_panel_width_mm = 150,
+    allocated_width_mm = 210,
     stringsAsFactors = FALSE
   )
 
   scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
-  expect_equal(scale$scale_x, 0.25)
-  expect_equal(scale$scale_y, 2 / 3)
+  expect_equal(scale$scale_x, 70 / 210)
+  expect_equal(scale$scale_y, 0.75)
 })
 
-test_that("distribution and dense-point floors prevent undersized panels", {
+test_that("simple distributions compact horizontally while dense points keep space", {
   box_jitter <- ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) +
     ggplot2::geom_boxplot() +
     ggplot2::geom_jitter() +
@@ -519,13 +566,29 @@ test_that("distribution and dense-point floors prevent undersized panels", {
   distribution_scale <- plotfit:::infer_inner_plot_scale(box_jitter, diagnostic)
   dense_scale <- plotfit:::infer_inner_plot_scale(dense_scatter, dense_diagnostic)
 
-  expect_equal(distribution_scale$scale_x, 1)
+  expect_equal(distribution_scale$scale_x, 0.5)
   expect_equal(distribution_scale$scale_y, 1)
   expect_equal(dense_scale$scale_x, 1)
   expect_equal(dense_scale$scale_y, 1)
 })
 
-test_that("saturated fixed-aspect point clouds stop growing after useful density", {
+test_that("simple distribution width responds to measured label pressure", {
+  plot <- ggplot2::ggplot(mtcars, ggplot2::aes(factor(cyl), mpg)) +
+    ggplot2::geom_boxplot() +
+    ggplot2::geom_point()
+  diagnostic <- data.frame(
+    hard_loss = 0,
+    label_gap_loss = 2,
+    stringsAsFactors = FALSE
+  )
+
+  scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
+
+  expect_equal(scale$scale_x, 0.625)
+  expect_equal(scale$scale_y, 1)
+})
+
+test_that("saturated fixed-aspect point clouds shrink after useful density", {
   plot <- ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) +
     ggplot2::geom_point() +
     ggplot2::theme(aspect.ratio = 1)
@@ -537,8 +600,28 @@ test_that("saturated fixed-aspect point clouds stop growing after useful density
 
   scale <- plotfit:::infer_inner_plot_scale(plot, diagnostic)
 
-  expect_equal(scale$scale_x, 2 / 3)
-  expect_equal(scale$scale_y, 2 / 3)
+  expect_equal(scale$scale_x, 1 / 3)
+  expect_equal(scale$scale_y, 1 / 3)
+})
+
+test_that("unannotated heatmaps and density curves use compact general footprints", {
+  heatmap <- ggplot2::ggplot(
+    expand.grid(x = seq_len(10), y = seq_len(12)),
+    ggplot2::aes(x, y, fill = x + y)
+  ) +
+    ggplot2::geom_tile()
+  density <- ggplot2::ggplot(iris, ggplot2::aes(Sepal.Length, colour = Species)) +
+    ggplot2::geom_density() +
+    ggplot2::theme(legend.position = "bottom")
+  diagnostic <- data.frame(hard_loss = 0, stringsAsFactors = FALSE)
+
+  heatmap_scale <- plotfit:::infer_inner_plot_scale(heatmap, diagnostic)
+  density_scale <- plotfit:::infer_inner_plot_scale(density, diagnostic)
+
+  expect_equal(heatmap_scale$scale_x, 2 / 3)
+  expect_equal(heatmap_scale$scale_y, 2 / 3)
+  expect_equal(density_scale$scale_x, 2 / 3)
+  expect_equal(density_scale$scale_y, 1)
 })
 
 test_that("distribution footprints preserve explicit aspect while growing taller", {

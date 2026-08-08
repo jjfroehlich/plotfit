@@ -850,7 +850,7 @@ run_demo <- function(
     scenarios = "all",
     project_dir = canonical_project_dir,
     output_dir = file.path(project_dir, "demo_output"),
-    layout_engine = "grid",
+    layout_engine = "patchwork",
     diagnostics = FALSE,
     text_size = 7,
     page_width_in = 8.27,
@@ -972,7 +972,7 @@ run_demo <- function(
 parse_demo_args <- function(args = commandArgs(trailingOnly = TRUE)) {
   scenario <- "all"
   output_dir <- NULL
-  layout_engine <- "grid"
+  layout_engine <- "patchwork"
   diagnostics <- FALSE
 
   for (arg in args) {

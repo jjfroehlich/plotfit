@@ -113,10 +113,11 @@ global `(pN)` identifiers, and must not rotate the canonical comparison pair.
 Use `--diagnostics` only when TSV diagnostics, warnings, or generated
 patchwork code are intentionally needed.
 
-For visual PDF review and the default demo, use `layout_engine = "grid"`.
-Patchwork output stays the backward-compatible default package API engine and
-is useful for editable code, but grid output is the high-fidelity
-physical-sizing target.
+For visual PDF review and the default demo, use `layout_engine = "patchwork"`
+so the canonical feedback PDFs exercise the same editable output that package
+users receive by default. Grid rendering may be used as an explicit diagnostic
+comparison when exact physical viewport rendering is needed, but it must not be
+the default demo or feedback-PDF engine.
 
 ## Verification Commands
 

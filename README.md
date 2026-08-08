@@ -2,41 +2,23 @@
 
 Automatic plot dimension optimization for PDF exports of many ggplots. 
 
-`plotfit` measures ggplot objects on a target-like PDF device, and returns a suggested layout for the 'patchwork' package, with the aim that individual plots will have optimal dimensions. The overall arrangement of plots and spacing between them is not optimized. 
+`plotfit` analyzes ggplot objects on a PDF device, and returns a suggested layout for the 'patchwork' package. The aim is, that individual plots will have optimal dimensions and sizing. From here one can then manually assemble them in a vector graphic editor into publication figures. The overall arrangement of plots and the spacing between them is therefore not optimized.
 
 ![Before and after layout comparison](man/figures/readme-layout-comparison.png)
 
 ## What It Does
 
 - Accepts a list of `ggplot2` plots.
-- Infers plot footprints automatically from axes, labels, aspect constraints.
+- Infers plot footprints automatically from axes, labels, legends, facets, and aspect constraints.
 - Chooses one or more pages.
-- Suggests layouts for patchwork pacakge that results in sensible sizing of plots.
-- Patchwork layout can be adjusted by user. 
+- Searches plot arrangements and row and column sizes for sensible physical plot dimensions.
+- Returns an editable `patchwork` layout and generated R code.
 
 ## Installation
-
-From a local checkout:
-
-```r
-install.packages("remotes")
-remotes::install_local("D:/code/r/plotfit")
-```
-
-Or, from inside the project directory:
-
-```r
-remotes::install_local(".")
-```
-
-If the package is published on GitHub, install it with:
 
 ```r
 remotes::install_github("jjfroehlich/plotfit")
 ```
-
-For quick development without installing, source the files directly as shown
-below.
 
 ## Basic Usage
 
@@ -46,15 +28,7 @@ Load the installed package:
 library(plotfit)
 ```
 
-Source the package files during local development:
-
-```r
-for (r_file in sort(list.files("R", pattern = "\\.R$", full.names = TRUE))) {
-  source(r_file)
-}
-```
-
-Then optimize and inspect the suggested patchwork layout:
+Optimize and inspect the suggested patchwork layout:
 
 ```r
 layout_result <- suggest_patchwork_layout(
@@ -80,25 +54,38 @@ quick_result$performance_diagnostics$candidates
 quick_result$performance_diagnostics$fit_cache
 ```
 
-For a narrative report, provide the complete page partition using plot names.
-Singleton groups isolate a plot without supplying any physical dimensions:
+By default, `plotfit` decides which plots share a page. Use `page_groups` when
+the report's narrative requires a particular page assignment. Each element of
+the list defines one page, using the names from the `plots` list:
 
 ```r
+plots <- list(
+  overview = p1,
+  trend = p2,
+  full_page_map = p3,
+  details = p4,
+  appendix = p5
+)
+
 report_result <- suggest_patchwork_layout(
   plots,
-  page_groups = list(c("overview", "trend"), "full_page_map", c("details", "appendix"))
+  page_groups = list(
+    c("overview", "trend"),
+    "full_page_map",
+    c("details", "appendix")
+  )
 )
 ```
 
-Candidate search can also be bounded directly with
-`search_timeout_seconds` and `early_stop_patience`. Timeouts are soft: an
-in-progress candidate is allowed to finish.
+This requests three pages: `overview` with `trend`, `full_page_map` by itself,
+and `details` with `appendix`. Every plot name must appear exactly once.
+`page_groups` controls only which plots share a page; `plotfit` still determines
+their arrangement and physical sizes automatically.
 
-## Patchwork vs Grid Output
+## Patchwork Output
 
-`layout_engine = "patchwork"` is the preferred and default workflow when you
-want an optimized layout that remains easy to inspect, copy, paste, and adjust
-by hand. 
+`layout_engine = "patchwork"` is the default because it returns an optimized
+layout that remains easy to inspect, copy, paste, and adjust in R.
 
 ```r
 layout_result <- suggest_patchwork_layout(plots)
@@ -110,7 +97,11 @@ layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
-`layout_engine = "grid"` is an optional exact preview and rendering aid. 
+## Grid Output
+
+`layout_engine = "grid"` renders the optimizer's physical row, column, and plot
+footprint measurements more exactly. It is available for diagnostic comparisons
+when you want to distinguish sizing decisions from patchwork rendering behavior.
 
 ```r
 layout_result <- suggest_patchwork_layout(plots, layout_engine = "grid")
@@ -136,8 +127,9 @@ Default output:
 The unified feedback PDF numbers every plot globally in its title (`p1`, `p2`,
 and so on). Before a canonical all-scenarios run replaces the PDF, the existing
 version is copied to `demo_output/previous/` for side-by-side review. The demo
-uses the high-fidelity grid renderer by default; the package API still returns
-editable patchwork output by default.
+uses patchwork so the feedback PDF exercises the same editable output that the
+package API returns by default. Grid rendering remains available through
+`--layout-engine=grid` for diagnostic comparisons.
 
 Run one scenario:
 
@@ -163,10 +155,6 @@ Run tests:
 & 'C:\Program Files\R\R-4.2.2\bin\Rscript.exe' -e "testthat::test_local('.', reporter = 'summary')"
 ```
 
-Key invariants:
+## Give Feedback and Contribute
 
-- No demo-specific plot IDs, titles, datasets, or positions may influence
-  optimizer behavior.
-- The demo script must pass ordinary ggplot objects, not plot-specific footprint
-  overrides.
-- Visual PDF review should use `layout_engine = "grid"`.
+- Please get in touch if you have feedback or want to contribute.
