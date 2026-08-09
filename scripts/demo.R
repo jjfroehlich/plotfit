@@ -652,6 +652,10 @@ make_extreme_feedback_plots <- function() {
   matrix_data$value <- stats::runif(nrow(matrix_data), -1, 1)
   matrix_data$label <- sprintf("%.2f", matrix_data$value)
 
+  corr_matrix <- round(stats::cor(mtcars[, c("mpg", "disp", "hp", "drat", "wt", "qsec")]), 2)
+  corr_data <- as.data.frame(as.table(corr_matrix))
+  names(corr_data) <- c("metric_x", "metric_y", "correlation")
+
   list(
     extreme_long_category_bars = ggplot(category_data, aes(category, value, fill = value)) +
       geom_col(color = "black", linewidth = 0.2) +
@@ -693,6 +697,20 @@ make_extreme_feedback_plots <- function() {
       geom_text(aes(label = label), size = 1.35) +
       scale_fill_gradient2(low = okabe_ito["blue"], mid = "white", high = okabe_ito["vermillion"], limits = c(-1, 1)) +
       labs(title = "Twelve-by-twelve labelled matrix", x = NULL, y = NULL, fill = "Score") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right", aspect.ratio = 1) +
+      compact_theme,
+
+    correlation_matrix_unlabelled = ggplot(corr_data, aes(metric_x, metric_y, fill = correlation)) +
+      geom_tile(color = "white", linewidth = 0.25) +
+      scale_fill_gradient2(low = okabe_ito["blue"], mid = "white", high = okabe_ito["vermillion"], limits = c(-1, 1)) +
+      labs(title = "Correlation matrix without cell text", x = NULL, y = NULL, fill = "r") +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right", aspect.ratio = 1) +
+      compact_theme,
+
+    extreme_matrix_unlabelled = ggplot(matrix_data, aes(metric_x, metric_y, fill = value)) +
+      geom_tile(color = "white", linewidth = 0.15) +
+      scale_fill_gradient2(low = okabe_ito["blue"], mid = "white", high = okabe_ito["vermillion"], limits = c(-1, 1)) +
+      labs(title = "Twelve-by-twelve matrix without cell text", x = NULL, y = NULL, fill = "Score") +
       theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.position = "right", aspect.ratio = 1) +
       compact_theme
   )

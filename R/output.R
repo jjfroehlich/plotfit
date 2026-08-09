@@ -215,12 +215,12 @@ infer_measured_inner_plot_scale <- function(diagnostic = data.frame()) {
     return(NULL)
   }
   required_width_mm <- scalar_or_default(
-    diagnostic$required_width_mm,
-    scalar_or_default(diagnostic$preferred_width_mm, NA_real_)
+    diagnostic$inner_target_width_mm,
+    scalar_or_default(diagnostic$required_width_mm, NA_real_)
   )
   required_height_mm <- scalar_or_default(
-    diagnostic$required_height_mm,
-    scalar_or_default(diagnostic$preferred_height_mm, NA_real_)
+    diagnostic$inner_target_height_mm,
+    scalar_or_default(diagnostic$required_height_mm, NA_real_)
   )
   if (!is.finite(required_width_mm) || required_width_mm <= 0 ||
       !is.finite(required_height_mm) || required_height_mm <= 0) return(NULL)
@@ -249,35 +249,27 @@ validate_inner_plot_scale <- function(scale, diagnostic, fit_function = NULL, ma
 
   for (iteration in seq_len(max_iterations)) {
     fit <- fit_function(allocated_width_mm * scale_x, allocated_height_mm * scale_y)
-    if (is.finite(fit$hard_violation_mm) && fit$hard_violation_mm <= 0) {
+    reliable <- fit$footprint_measurement_reliable
+    if (!is.null(reliable) && length(reliable) > 0 && !isTRUE(reliable)) {
+      return(list(scale_x = 1, scale_y = 1, status = "fallback_unmeasurable", iterations = iteration))
+    }
+    footprint_width_violation <- scalar_or_default(
+      fit$inner_footprint_width_violation_mm,
+      scalar_or_default(fit$footprint_width_violation_mm, 0)
+    )
+    footprint_height_violation <- scalar_or_default(
+      fit$inner_footprint_height_violation_mm,
+      scalar_or_default(fit$footprint_height_violation_mm, 0)
+    )
+    if (is.finite(footprint_width_violation) && footprint_width_violation <= 0 &&
+        is.finite(footprint_height_violation) && footprint_height_violation <= 0) {
       return(list(scale_x = scale_x, scale_y = scale_y, status = "validated", iterations = iteration))
     }
 
-    width_failed <- max(
-      scalar_or_default(fit$x_label_violation_mm, 0),
-      scalar_or_default(fit$panel_width_violation_mm, 0),
-      scalar_or_default(fit$facet_panel_width_violation_mm, 0),
-      scalar_or_default(fit$footprint_width_violation_mm, 0),
-      na.rm = TRUE
-    ) > 0
-    height_failed <- max(
-      scalar_or_default(fit$y_label_violation_mm, 0),
-      scalar_or_default(fit$panel_height_violation_mm, 0),
-      scalar_or_default(fit$facet_panel_height_violation_mm, 0),
-      scalar_or_default(fit$footprint_height_violation_mm, 0),
-      na.rm = TRUE
-    ) > 0
+    width_failed <- is.finite(footprint_width_violation) && footprint_width_violation > 0
+    height_failed <- is.finite(footprint_height_violation) && footprint_height_violation > 0
     aspect_constrained <- is.finite(scalar_or_default(fit$target_panel_aspect, NA_real_))
-    panel_or_facet_failed <- max(
-      scalar_or_default(fit$panel_width_violation_mm, 0),
-      scalar_or_default(fit$panel_height_violation_mm, 0),
-      scalar_or_default(fit$facet_panel_width_violation_mm, 0),
-      scalar_or_default(fit$facet_panel_height_violation_mm, 0),
-      scalar_or_default(fit$footprint_width_violation_mm, 0),
-      scalar_or_default(fit$footprint_height_violation_mm, 0),
-      na.rm = TRUE
-    ) > 0
-    if (aspect_constrained && panel_or_facet_failed) {
+    if (aspect_constrained && (width_failed || height_failed)) {
       width_failed <- TRUE
       height_failed <- TRUE
     }
@@ -285,8 +277,8 @@ validate_inner_plot_scale <- function(scale, diagnostic, fit_function = NULL, ma
       width_failed <- TRUE
       height_failed <- TRUE
     }
-    if (width_failed) scale_x <- (scale_x + 1) / 2
-    if (height_failed) scale_y <- (scale_y + 1) / 2
+    if (width_failed) scale_x <- scale_x + 0.25 * (1 - scale_x)
+    if (height_failed) scale_y <- scale_y + 0.25 * (1 - scale_y)
   }
 
   list(scale_x = 1, scale_y = 1, status = "fallback_full_size", iterations = as.integer(max_iterations))
@@ -702,6 +694,8 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate, 
         min_y_label_gap_mm = NA_real_,
         required_width_mm = NA_real_,
         required_height_mm = NA_real_,
+        inner_target_width_mm = NA_real_,
+        inner_target_height_mm = NA_real_,
         width_limiting_constraint = "unavailable",
         height_limiting_constraint = "unavailable",
         inner_scale_x = 1,
@@ -744,6 +738,8 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate, 
       preferred_height_mm = frontier$preferred_height_mm,
       required_width_mm = selected$required_width_mm[1],
       required_height_mm = selected$required_height_mm[1],
+      inner_target_width_mm = selected$inner_target_width_mm[1],
+      inner_target_height_mm = selected$inner_target_height_mm[1],
       inner_scale_x = selected$inner_scale_x[1],
       inner_scale_y = selected$inner_scale_y[1],
       width_limiting_constraint = selected$width_limiting_constraint[1],

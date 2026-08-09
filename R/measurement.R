@@ -234,11 +234,14 @@ measure_plot_profile <- function(plot, plot_id, plot_index, page_spec, measureme
   components <- extract_gtable_components(gt)
   component_sizes <- measure_component_sizes(gt, components)
   text_grobs <- collect_plot_text_grobs(gt, components)
+  panel_text_grobs <- collect_panel_text_grobs(gt, components)
   fixed_size <- estimate_fixed_non_panel_size(gt, components)
   unit_profile <- prepare_gtable_unit_profile(gt, components)
   panel_structure <- estimate_panel_structure(gt, built_plot)
   density <- estimate_data_density(plot, built_plot, panel_structure)
   geometry <- estimate_plot_geometry(plot, built_plot, panel_structure, component_sizes)
+  content_geometry <- estimate_content_geometry(built_plot, panel_structure, panel_text_grobs)
+  geometry <- c(geometry, content_geometry)
   axis_positions <- estimate_axis_label_positions(built_plot, text_grobs)
 
   list(
@@ -250,6 +253,7 @@ measure_plot_profile <- function(plot, plot_id, plot_index, page_spec, measureme
     components = components,
     component_sizes = component_sizes,
     text_grobs = text_grobs,
+    panel_text_grobs = panel_text_grobs,
     fixed_size = fixed_size,
     unit_profile = unit_profile,
     panels = panel_structure,
@@ -257,6 +261,120 @@ measure_plot_profile <- function(plot, plot_id, plot_index, page_spec, measureme
     geometry = geometry,
     axis_positions = axis_positions,
     warnings = warnings
+  )
+}
+
+estimate_content_geometry <- function(built_plot, panel_structure = NULL, panel_text_grobs = NULL) {
+  empty <- list(
+    max_unique_x_per_panel = NA_real_,
+    max_unique_y_per_panel = NA_real_,
+    max_layer_rows_per_panel = NA_real_,
+    max_glyph_rows_per_panel = 0,
+    total_glyph_rows = 0,
+    max_groups_per_panel = 1,
+    has_trajectory_content = 0,
+    max_panel_text_width_mm = 0,
+    max_panel_text_height_mm = 0,
+    regular_grid_score = 0,
+    summary_detail_score = 0,
+    bounded_layer_fraction = 0
+  )
+  if (is.null(built_plot) || is.null(built_plot$data) || length(built_plot$data) == 0) {
+    return(empty)
+  }
+
+  layer_rows <- list()
+  has_bounds <- logical(length(built_plot$data))
+  has_annotations <- logical(length(built_plot$data))
+  has_glyphs <- logical(length(built_plot$data))
+  has_trajectory <- logical(length(built_plot$data))
+  for (layer_index in seq_along(built_plot$data)) {
+    layer_data <- built_plot$data[[layer_index]]
+    if (nrow(layer_data) == 0) next
+    panel_values <- if ("PANEL" %in% names(layer_data)) layer_data$PANEL else rep(1, nrow(layer_data))
+    panel_groups <- split(layer_data, panel_values, drop = TRUE)
+    has_bounds[layer_index] <- all(c("xmin", "xmax") %in% names(layer_data)) ||
+      all(c("ymin", "ymax") %in% names(layer_data))
+    has_annotations[layer_index] <- "label" %in% names(layer_data) &&
+      any(!is.na(layer_data$label) & nzchar(trimws(as.character(layer_data$label))))
+    has_glyphs[layer_index] <- "shape" %in% names(layer_data) &&
+      any(!is.na(layer_data$shape))
+    has_trajectory[layer_index] <- all(c("x", "y") %in% names(layer_data)) &&
+      !has_bounds[layer_index] && !has_annotations[layer_index] &&
+      !has_glyphs[layer_index] && nrow(layer_data) > 1
+
+    layer_rows[[length(layer_rows) + 1L]] <- do.call(rbind, lapply(panel_groups, function(panel_data) {
+      finite_x <- if ("x" %in% names(panel_data)) panel_data$x[is.finite(panel_data$x)] else numeric()
+      finite_y <- if ("y" %in% names(panel_data)) panel_data$y[is.finite(panel_data$y)] else numeric()
+      unique_x <- length(unique(finite_x))
+      unique_y <- length(unique(finite_y))
+      grid_capacity <- unique_x * unique_y
+      group_count <- if ("group" %in% names(panel_data)) {
+        length(unique(panel_data$group[!is.na(panel_data$group)]))
+      } else {
+        1
+      }
+      data.frame(
+        layer = layer_index,
+        rows = nrow(panel_data),
+        unique_x = unique_x,
+        unique_y = unique_y,
+        grid_occupancy = if (grid_capacity > 0) min(1, nrow(panel_data) / grid_capacity) else 0,
+        groups = max(1, group_count),
+        has_bounds = has_bounds[layer_index],
+        has_annotations = has_annotations[layer_index],
+        has_glyphs = has_glyphs[layer_index],
+        has_trajectory = has_trajectory[layer_index],
+        stringsAsFactors = FALSE
+      )
+    }))
+  }
+  if (length(layer_rows) == 0) return(empty)
+  summaries <- do.call(rbind, layer_rows)
+  detail_rows <- summaries$rows[!summaries$has_bounds & !summaries$has_annotations]
+  max_detail_rows <- if (length(detail_rows) > 0) max(detail_rows) else 0
+  summary_detail_score <- if (any(summaries$has_bounds) && max_detail_rows > 0) {
+    min(1, max_detail_rows / 100)
+  } else {
+    0
+  }
+  bounded_rows <- summaries[summaries$has_bounds, , drop = FALSE]
+  regular_grid_score <- if (nrow(bounded_rows) > 0) {
+    max(bounded_rows$grid_occupancy, na.rm = TRUE)
+  } else {
+    0
+  }
+
+  measured_panel_text_width_mm <- if (!is.null(panel_text_grobs) && nrow(panel_text_grobs) > 0) {
+    max(panel_text_grobs$width_mm[panel_text_grobs$visible], na.rm = TRUE)
+  } else {
+    0
+  }
+  measured_panel_text_height_mm <- if (!is.null(panel_text_grobs) && nrow(panel_text_grobs) > 0) {
+    max(panel_text_grobs$height_mm[panel_text_grobs$visible], na.rm = TRUE)
+  } else {
+    0
+  }
+  if (!is.finite(measured_panel_text_width_mm)) measured_panel_text_width_mm <- 0
+  if (!is.finite(measured_panel_text_height_mm)) measured_panel_text_height_mm <- 0
+
+  list(
+    max_unique_x_per_panel = max(summaries$unique_x, na.rm = TRUE),
+    max_unique_y_per_panel = max(summaries$unique_y, na.rm = TRUE),
+    max_layer_rows_per_panel = max(summaries$rows, na.rm = TRUE),
+    max_glyph_rows_per_panel = if (any(summaries$has_glyphs)) {
+      max(summaries$rows[summaries$has_glyphs], na.rm = TRUE)
+    } else {
+      0
+    },
+    total_glyph_rows = sum(summaries$rows[summaries$has_glyphs], na.rm = TRUE),
+    max_groups_per_panel = max(summaries$groups, na.rm = TRUE),
+    has_trajectory_content = as.numeric(any(summaries$has_trajectory)),
+    max_panel_text_width_mm = measured_panel_text_width_mm,
+    max_panel_text_height_mm = measured_panel_text_height_mm,
+    regular_grid_score = min(1, max(0, regular_grid_score)),
+    summary_detail_score = summary_detail_score,
+    bounded_layer_fraction = mean(has_bounds)
   )
 }
 
@@ -332,6 +450,27 @@ collect_plot_text_grobs <- function(gt, components) {
     return(empty_text_grobs())
   }
 
+  do.call(rbind, rows)
+}
+
+collect_panel_text_grobs <- function(gt, components) {
+  rows <- list()
+  panel_components <- components[components$type == "panel", , drop = FALSE]
+
+  for (component_index in seq_len(nrow(panel_components))) {
+    component <- panel_components[component_index, , drop = FALSE]
+    component_rows <- collect_text_grobs(
+      grob = gt$grobs[[component$index]],
+      component_type = component$type,
+      component_name = component$name,
+      path = component$name
+    )
+    if (nrow(component_rows) > 0) {
+      rows[[length(rows) + 1L]] <- component_rows
+    }
+  }
+
+  if (length(rows) == 0) return(empty_text_grobs())
   do.call(rbind, rows)
 }
 

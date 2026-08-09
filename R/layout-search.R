@@ -606,6 +606,8 @@ score_layout_page <- function(layout_page, widths, heights, fit_functions, page_
       allocated_height_mm = allocation$height_mm,
       preferred_width_mm = scalar_or_default(fit$preferred_width_mm, NA_real_),
       preferred_height_mm = scalar_or_default(fit$preferred_height_mm, NA_real_),
+      inner_target_width_mm = scalar_or_default(fit$inner_target_width_mm, NA_real_),
+      inner_target_height_mm = scalar_or_default(fit$inner_target_height_mm, NA_real_),
       required_width_mm = scalar_or_default(fit$required_width_mm, NA_real_),
       required_height_mm = scalar_or_default(fit$required_height_mm, NA_real_),
       width_limiting_constraint = scalar_or_default(fit$width_limiting_constraint, "unavailable"),

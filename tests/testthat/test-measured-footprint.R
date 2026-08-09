@@ -134,3 +134,184 @@ test_that("legend envelopes include a conservative measured safety margin", {
   expect_gte(footprint$required_width_mm, 58)
   expect_gte(footprint$required_height_mm, 14)
 })
+
+test_that("generic built-coordinate measurements distinguish content burdens", {
+  grid_data <- expand.grid(x = seq_len(8), y = seq_len(6))
+  grid_plot <- ggplot2::ggplot(grid_data, ggplot2::aes(x, y)) + ggplot2::geom_tile()
+  grid_geometry <- plotfit:::estimate_content_geometry(ggplot2::ggplot_build(grid_plot))
+  expect_gte(grid_geometry$regular_grid_score, 0.99)
+
+  detail_plot <- ggplot2::ggplot(iris, ggplot2::aes(Species, Sepal.Length)) +
+    ggplot2::geom_boxplot() +
+    ggplot2::geom_jitter(width = 0.1)
+  detail_geometry <- plotfit:::estimate_content_geometry(ggplot2::ggplot_build(detail_plot))
+  expect_gt(detail_geometry$summary_detail_score, 0.9)
+  expect_gt(detail_geometry$max_glyph_rows_per_panel, 0)
+
+  line_plot <- ggplot2::ggplot(data.frame(x = 1:20, y = cumsum(rep(1, 20))), ggplot2::aes(x, y)) +
+    ggplot2::geom_line()
+  line_geometry <- plotfit:::estimate_content_geometry(ggplot2::ggplot_build(line_plot))
+  expect_equal(line_geometry$has_trajectory_content, 1)
+  expect_equal(line_geometry$max_glyph_rows_per_panel, 0)
+})
+
+test_that("regular-grid cell text uses measured panel-label extents", {
+  make_cell_text_profile <- function(labels) {
+    grid_data <- expand.grid(x = seq_len(4), y = seq_len(3))
+    grid_data$label <- labels
+    plot <- ggplot2::ggplot(grid_data, ggplot2::aes(x, y)) +
+      ggplot2::geom_tile() +
+      ggplot2::geom_text(ggplot2::aes(label = label), size = 2)
+    built <- ggplot2::ggplot_build(plot)
+    gt <- ggplot2::ggplotGrob(plot)
+    components <- plotfit:::extract_gtable_components(gt)
+    panel_text <- plotfit:::collect_panel_text_grobs(gt, components)
+    geometry <- plotfit:::estimate_content_geometry(built, panel_text_grobs = panel_text)
+    profile <- make_footprint_profile()
+    profile$geometry <- utils::modifyList(profile$geometry, geometry)
+    profile$geometry$n_nonempty_text_labels <- nrow(grid_data)
+    profile
+  }
+
+  short <- make_cell_text_profile(rep("1", 12))
+  long <- make_cell_text_profile(rep("long", 12))
+  short_requirement <- plotfit:::required_regular_grid_cell_text_span_mm(short, 1)
+  long_requirement <- plotfit:::required_regular_grid_cell_text_span_mm(long, 1)
+
+  expect_gt(long$geometry$max_panel_text_width_mm, short$geometry$max_panel_text_width_mm)
+  expect_gt(long_requirement$width_mm, short_requirement$width_mm)
+  expect_equal(long_requirement$height_mm, short_requirement$height_mm, tolerance = 0.1)
+})
+
+test_that("continuous content preferences act independently by dimension", {
+  base <- make_footprint_profile()
+  base$density$n_points_per_panel_estimate <- 48
+  base$geometry <- c(base$geometry, list(
+    max_unique_x_per_panel = 10,
+    max_unique_y_per_panel = 10,
+    max_layer_rows_per_panel = 48,
+    max_glyph_rows_per_panel = 0,
+    total_glyph_rows = 0,
+    max_groups_per_panel = 1,
+    has_trajectory_content = 1,
+    regular_grid_score = 0,
+    summary_detail_score = 0,
+    bounded_layer_fraction = 0
+  ))
+  resolved <- plotfit:::estimate_inner_content_multipliers(base)
+
+  long_x <- base
+  long_x$geometry$max_unique_x_per_panel <- 80
+  horizontal <- plotfit:::estimate_inner_content_multipliers(long_x)
+  expect_gt(horizontal$width_multiplier, resolved$width_multiplier)
+  expect_gt(horizontal$height_multiplier, resolved$height_multiplier)
+
+  dense_x <- long_x
+  dense_x$geometry$max_layer_rows_per_panel <- 5000
+  dense <- plotfit:::estimate_inner_content_multipliers(dense_x)
+  expect_lt(dense$height_multiplier, horizontal$height_multiplier)
+
+  faceted <- base
+  faceted$panels <- list(n_panel_rows = 2, n_panel_cols = 3, n_panels = 6)
+  faceted_height <- plotfit:::estimate_inner_content_multipliers(faceted)
+  expect_gt(faceted_height$height_multiplier, resolved$height_multiplier)
+
+  summary_detail <- base
+  summary_detail$geometry$summary_detail_score <- 1
+  summary_detail$geometry$legend_width_mm <- 50
+  detail <- plotfit:::estimate_inner_content_multipliers(summary_detail)
+  expect_gt(detail$width_multiplier, resolved$width_multiplier)
+  expect_gt(detail$height_multiplier, resolved$height_multiplier)
+})
+
+test_that("annotation, glyph, and many-panel preferences use generic measurements", {
+  base <- make_footprint_profile()
+  base$fixed_size <- list(left_mm = 5, right_mm = 2, top_mm = 5, bottom_mm = 8)
+  base$geometry <- c(base$geometry, list(
+    max_unique_x_per_panel = 12,
+    max_unique_y_per_panel = 12,
+    max_layer_rows_per_panel = 144,
+    max_glyph_rows_per_panel = 0,
+    total_glyph_rows = 0,
+    max_groups_per_panel = 1,
+    has_trajectory_content = 0,
+    regular_grid_score = 1,
+    summary_detail_score = 0,
+    bounded_layer_fraction = 0.5
+  ))
+
+  unlabelled <- plotfit:::estimate_inner_content_multipliers(base)
+  annotated_profile <- base
+  annotated_profile$geometry$n_nonempty_text_labels <- 144
+  annotated <- plotfit:::estimate_inner_content_multipliers(annotated_profile)
+  expect_gt(annotated$width_multiplier, unlabelled$width_multiplier)
+  expect_gt(annotated$height_multiplier, unlabelled$height_multiplier)
+
+  smaller_annotated_grid <- annotated_profile
+  smaller_annotated_grid$geometry$max_unique_x_per_panel <- 6
+  smaller_annotated_grid$geometry$max_unique_y_per_panel <- 6
+  smaller_annotated_grid$geometry$max_layer_rows_per_panel <- 36
+  smaller_annotated_grid$geometry$n_nonempty_text_labels <- 36
+  smaller_annotated <- plotfit:::estimate_inner_content_multipliers(smaller_annotated_grid)
+  expect_lt(smaller_annotated$width_multiplier, annotated$width_multiplier)
+  expect_lt(smaller_annotated$height_multiplier, annotated$height_multiplier)
+
+  glyph_profile <- base
+  glyph_profile$geometry$regular_grid_score <- 0
+  glyph_profile$geometry$bounded_layer_fraction <- 0
+  glyph_profile$geometry$max_glyph_rows_per_panel <- 80
+  glyph_profile$geometry$total_glyph_rows <- 80
+  glyph <- plotfit:::estimate_inner_content_multipliers(glyph_profile)
+  expect_gt(glyph$width_multiplier, 1)
+  expect_gt(glyph$height_multiplier, 1)
+
+  labelled_glyph_profile <- glyph_profile
+  labelled_glyph_profile$geometry$n_nonempty_text_labels <- 8
+  labelled_glyph_profile$geometry$max_panel_text_width_mm <- 14
+  labelled_glyph <- plotfit:::estimate_inner_content_multipliers(labelled_glyph_profile)
+  expect_gt(labelled_glyph$width_multiplier, glyph$width_multiplier)
+  expect_gt(labelled_glyph$height_multiplier, glyph$height_multiplier)
+
+  many_panels <- glyph_profile
+  many_panels$panels <- list(n_panel_rows = 7, n_panel_cols = 5, n_panels = 35)
+  many_panels$geometry$total_glyph_rows <- 1800
+  compact_facets <- plotfit:::estimate_inner_content_multipliers(many_panels)
+  expect_lt(compact_facets$width_multiplier, glyph$width_multiplier)
+
+  large_unlabelled_grid <- base
+  large_unlabelled_grid$geometry$max_layer_rows_per_panel <- 352
+  large_unlabelled_grid$geometry$max_unique_x_per_panel <- 16
+  large_unlabelled_grid$geometry$max_unique_y_per_panel <- 22
+  large_unlabelled <- plotfit:::estimate_inner_content_multipliers(large_unlabelled_grid)
+  expect_gte(large_unlabelled$width_multiplier, 0.65)
+  expect_gte(large_unlabelled$height_multiplier, 0.65)
+
+  dense_cloud <- glyph_profile
+  dense_cloud$geometry$max_glyph_rows_per_panel <- 18000
+  dense_cloud$geometry$total_glyph_rows <- 18000
+  dense_cloud_multiplier <- plotfit:::estimate_inner_content_multipliers(dense_cloud)
+  expect_gte(dense_cloud_multiplier$width_multiplier, 2)
+  expect_gte(dense_cloud_multiplier$height_multiplier, 1.1)
+
+  faceted_grid <- base
+  faceted_grid$panels <- list(n_panel_rows = 1, n_panel_cols = 2, n_panels = 2)
+  faceted_grid$geometry$max_layer_rows_per_panel <- 120
+  faceted_grid_multiplier <- plotfit:::estimate_inner_content_multipliers(faceted_grid)
+  expect_gte(faceted_grid_multiplier$width_multiplier, 1.2)
+
+  high_bottom_burden <- base
+  high_bottom_burden$fixed_size$bottom_mm <- 21
+  high_bottom_burden$geometry$max_unique_x_per_panel <- 5
+  burdened <- plotfit:::estimate_inner_content_multipliers(high_bottom_burden)
+  expect_gt(burdened$width_multiplier, unlabelled$width_multiplier)
+  expect_gt(burdened$height_multiplier, unlabelled$height_multiplier)
+
+  few_x_dense_y <- base
+  few_x_dense_y$geometry$regular_grid_score <- 0.14
+  few_x_dense_y$geometry$bounded_layer_fraction <- 1
+  few_x_dense_y$geometry$max_unique_x_per_panel <- 7
+  few_x_dense_y$geometry$max_unique_y_per_panel <- 3500
+  few_x_dense_y$geometry$max_layer_rows_per_panel <- 3500
+  distribution <- plotfit:::estimate_inner_content_multipliers(few_x_dense_y)
+  expect_gt(distribution$height_multiplier, unlabelled$height_multiplier)
+})

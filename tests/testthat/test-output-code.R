@@ -124,7 +124,11 @@ test_that("bounded validation enlarges only failing dimensions", {
       x_label_violation_mm = width_violation,
       y_label_violation_mm = height_violation,
       panel_width_violation_mm = 0, panel_height_violation_mm = 0,
-      facet_panel_width_violation_mm = 0, facet_panel_height_violation_mm = 0
+      facet_panel_width_violation_mm = 0, facet_panel_height_violation_mm = 0,
+      footprint_width_violation_mm = width_violation,
+      footprint_height_violation_mm = height_violation,
+      inner_footprint_width_violation_mm = width_violation,
+      inner_footprint_height_violation_mm = height_violation
     )
   }
   validated <- plotfit:::validate_inner_plot_scale(
@@ -146,6 +150,10 @@ test_that("bounded validation enlarges both dimensions for aspect-constrained pa
       x_label_violation_mm = 0, y_label_violation_mm = 0,
       panel_width_violation_mm = violation, panel_height_violation_mm = 0,
       facet_panel_width_violation_mm = 0, facet_panel_height_violation_mm = 0,
+      footprint_width_violation_mm = violation,
+      footprint_height_violation_mm = 0,
+      inner_footprint_width_violation_mm = violation,
+      inner_footprint_height_violation_mm = 0,
       target_panel_aspect = 1
     )
   }
@@ -163,7 +171,9 @@ test_that("failed bounded validation falls back to the full footprint", {
   failing_fit <- function(width_mm, height_mm) list(
     hard_violation_mm = 1, x_label_violation_mm = 1, y_label_violation_mm = 1,
     panel_width_violation_mm = 0, panel_height_violation_mm = 0,
-    facet_panel_width_violation_mm = 0, facet_panel_height_violation_mm = 0
+    facet_panel_width_violation_mm = 0, facet_panel_height_violation_mm = 0,
+    footprint_width_violation_mm = 1, footprint_height_violation_mm = 1,
+    inner_footprint_width_violation_mm = 1, inner_footprint_height_violation_mm = 1
   )
   result <- plotfit:::validate_inner_plot_scale(
     list(scale_x = 0.2, scale_y = 0.2),

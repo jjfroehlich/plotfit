@@ -134,6 +134,16 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
   } else {
     0
   }
+  inner_footprint_width_violation_mm <- if (isTRUE(footprint$measurement_reliable)) {
+    max(0, footprint$validation_required_width_mm - width_mm)
+  } else {
+    0
+  }
+  inner_footprint_height_violation_mm <- if (isTRUE(footprint$measurement_reliable)) {
+    max(0, footprint$validation_required_height_mm - height_mm)
+  } else {
+    0
+  }
   footprint_hard_loss <- preferences$hard_panel_penalty *
     (footprint_width_violation_mm^2 + footprint_height_violation_mm^2)
 
@@ -168,6 +178,8 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     height_mm = height_mm,
     preferred_width_mm = preferred_width_mm,
     preferred_height_mm = preferred_height_mm,
+    inner_target_width_mm = footprint$inner_target_width_mm,
+    inner_target_height_mm = footprint$inner_target_height_mm,
     required_width_mm = footprint$required_width_mm,
     required_height_mm = footprint$required_height_mm,
     width_limiting_constraint = footprint$width_limiting_constraint,
@@ -200,6 +212,8 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     facet_panel_height_violation_mm = facet_loss$facet_panel_height_violation_mm,
     footprint_width_violation_mm = footprint_width_violation_mm,
     footprint_height_violation_mm = footprint_height_violation_mm,
+    inner_footprint_width_violation_mm = inner_footprint_width_violation_mm,
+    inner_footprint_height_violation_mm = inner_footprint_height_violation_mm,
     label_gap_loss = axis_gaps$label_gap_loss,
     panel_minimum_loss = panel_loss$panel_minimum_loss,
     facet_loss = facet_loss$facet_loss,
@@ -228,18 +242,50 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
   axis_height <- required_axis_panel_span_mm(profile, "y", preferences$min_label_gap_mm)
   min_panel_width <- preferences$min_panel_width_mm * panel_cols
   min_panel_height <- preferences$min_panel_height_mm * panel_rows
+  inner_label_gap_mm <- scalar_or_default(preferences$inner_min_label_gap_mm, preferences$min_label_gap_mm)
+  inner_min_panel_width_mm <- scalar_or_default(
+    preferences$inner_min_panel_width_mm,
+    preferences$min_panel_width_mm
+  )
+  inner_min_panel_height_mm <- scalar_or_default(
+    preferences$inner_min_panel_height_mm,
+    preferences$min_panel_height_mm
+  )
+  validation_axis_width <- required_axis_panel_span_mm(profile, "x", inner_label_gap_mm)
+  validation_axis_height <- required_axis_panel_span_mm(profile, "y", inner_label_gap_mm)
+  validation_min_panel_width <- inner_min_panel_width_mm * panel_cols
+  validation_min_panel_height <- inner_min_panel_height_mm * panel_rows
 
   content_limits <- adjusted_panel_limits_for_density(profile, preferences)
+  inner_content <- estimate_inner_content_multipliers(profile)
+  cell_text_requirements <- required_regular_grid_cell_text_span_mm(
+    profile,
+    gap_mm = preferences$min_label_gap_mm
+  )
   panel_width_candidates <- c(
     panel_minimum = min_panel_width,
-    axis_labels = axis_width * panel_cols
+    axis_labels = axis_width * panel_cols,
+    cell_text = cell_text_requirements$width_mm * panel_cols
   )
   panel_height_candidates <- c(
     panel_minimum = min_panel_height,
-    axis_labels = axis_height * panel_rows
+    axis_labels = axis_height * panel_rows,
+    cell_text = cell_text_requirements$height_mm * panel_rows
   )
   panel_width_candidates[!is.finite(panel_width_candidates)] <- 0
   panel_height_candidates[!is.finite(panel_height_candidates)] <- 0
+  validation_panel_width_candidates <- c(
+    panel_minimum = validation_min_panel_width,
+    axis_labels = validation_axis_width * panel_cols,
+    cell_text = cell_text_requirements$width_mm * panel_cols
+  )
+  validation_panel_height_candidates <- c(
+    panel_minimum = validation_min_panel_height,
+    axis_labels = validation_axis_height * panel_rows,
+    cell_text = cell_text_requirements$height_mm * panel_rows
+  )
+  validation_panel_width_candidates[!is.finite(validation_panel_width_candidates)] <- 0
+  validation_panel_height_candidates[!is.finite(validation_panel_height_candidates)] <- 0
 
   base_required_panel_width <- max(panel_width_candidates)
   base_required_panel_height <- max(panel_height_candidates)
@@ -247,6 +293,8 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
   panel_height_constraint <- names(panel_height_candidates)[which.max(panel_height_candidates)]
   required_panel_width <- base_required_panel_width
   required_panel_height <- base_required_panel_height
+  validation_panel_width <- max(validation_panel_width_candidates)
+  validation_panel_height <- max(validation_panel_height_candidates)
   target_aspect <- scalar_or_default(profile$geometry$target_panel_aspect, NA_real_)
   aspect_adjusted <- FALSE
   if (is.finite(target_aspect) && target_aspect > 0 &&
@@ -258,6 +306,15 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
     } else if (actual_aspect > target_aspect) {
       required_panel_width <- required_panel_height / target_aspect
       aspect_adjusted <- TRUE
+    }
+  }
+  if (is.finite(target_aspect) && target_aspect > 0 &&
+      validation_panel_width > 0 && validation_panel_height > 0) {
+    validation_aspect <- validation_panel_height / validation_panel_width
+    if (validation_aspect < target_aspect) {
+      validation_panel_height <- validation_panel_width * target_aspect
+    } else if (validation_aspect > target_aspect) {
+      validation_panel_width <- validation_panel_height / target_aspect
     }
   }
 
@@ -274,10 +331,31 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
   ]
   text_width_mm <- if (nrow(wide_text) > 0) max(wide_text$width_mm, na.rm = TRUE) else 0
   text_height_mm <- if (nrow(tall_text) > 0) max(tall_text$height_mm, na.rm = TRUE) else 0
-  component_width_mm <- max(legend_width_mm + if (legend_width_mm > 0) 8 else 0, text_width_mm + 2, na.rm = TRUE)
-  component_height_mm <- max(legend_height_mm + if (legend_height_mm > 0) 4 else 0, text_height_mm + 2, na.rm = TRUE)
+  component_width_mm <- max(
+    legend_width_mm + if (legend_width_mm > 0) 8 else 0,
+    text_width_mm + 2,
+    na.rm = TRUE
+  )
+  component_height_mm <- max(
+    legend_height_mm + if (legend_height_mm > 0) 4 else 0,
+    text_height_mm + 2,
+    na.rm = TRUE
+  )
+  legend_width_scale <- 0.64 - 0.15 * min(1, max(0, (legend_width_mm - 50) / 40))
+  validation_component_width_mm <- max(
+    (legend_width_mm + if (legend_width_mm > 0) 8 else 0) * legend_width_scale,
+    (text_width_mm + 2) * 0.65,
+    na.rm = TRUE
+  )
+  validation_component_height_mm <- max(
+    (legend_height_mm + if (legend_height_mm > 0) 4 else 0) * 0.65,
+    (text_height_mm + 2) * 0.65,
+    na.rm = TRUE
+  )
   if (!is.finite(component_width_mm)) component_width_mm <- 0
   if (!is.finite(component_height_mm)) component_height_mm <- 0
+  if (!is.finite(validation_component_width_mm)) validation_component_width_mm <- 0
+  if (!is.finite(validation_component_height_mm)) validation_component_height_mm <- 0
 
   width_candidates <- c(
     stats::setNames(fixed_width_mm + base_required_panel_width, panel_width_constraint),
@@ -298,6 +376,14 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
 
   required_width_mm <- max(width_candidates)
   required_height_mm <- max(height_candidates)
+  validation_required_width_mm <- max(
+    inner_content$validation_fixed_width_scale * fixed_width_mm + validation_panel_width,
+    validation_component_width_mm
+  )
+  validation_required_height_mm <- max(
+    inner_content$validation_fixed_height_scale * fixed_height_mm + validation_panel_height,
+    validation_component_height_mm
+  )
   preferred_panel_width <- max(
     required_panel_width,
     content_limits$preferred_panel_width_mm * panel_cols
@@ -316,8 +402,12 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
   }
   preferred_width_mm <- max(required_width_mm, fixed_width_mm + preferred_panel_width)
   preferred_height_mm <- max(required_height_mm, fixed_height_mm + preferred_panel_height)
+  inner_target_width_mm <- required_width_mm * inner_content$width_multiplier
+  inner_target_height_mm <- required_height_mm * inner_content$height_multiplier
   measurement_reliable <- is.finite(required_width_mm) && required_width_mm > 0 &&
     is.finite(required_height_mm) && required_height_mm > 0 &&
+    is.finite(validation_required_width_mm) && validation_required_width_mm > 0 &&
+    is.finite(validation_required_height_mm) && validation_required_height_mm > 0 &&
     is.finite(fixed_width_mm) && is.finite(fixed_height_mm)
 
   list(
@@ -325,9 +415,35 @@ estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
     required_height_mm = required_height_mm,
     preferred_width_mm = preferred_width_mm,
     preferred_height_mm = preferred_height_mm,
+    inner_target_width_mm = inner_target_width_mm,
+    inner_target_height_mm = inner_target_height_mm,
+    validation_required_width_mm = validation_required_width_mm,
+    validation_required_height_mm = validation_required_height_mm,
     width_limiting_constraint = names(width_candidates)[which.max(width_candidates)],
     height_limiting_constraint = names(height_candidates)[which.max(height_candidates)],
     measurement_reliable = measurement_reliable
+  )
+}
+
+required_regular_grid_cell_text_span_mm <- function(profile, gap_mm = 0) {
+  regular_grid_score <- min(1, max(0, scalar_or_default(profile$geometry$regular_grid_score, 0)))
+  n_annotations <- scalar_or_default(profile$geometry$n_nonempty_text_labels, 0)
+  if (regular_grid_score <= 0 || n_annotations <= 0) {
+    return(list(width_mm = 0, height_mm = 0))
+  }
+
+  n_x <- max(1, scalar_or_default(profile$geometry$max_unique_x_per_panel, 1))
+  n_y <- max(1, scalar_or_default(profile$geometry$max_unique_y_per_panel, 1))
+  text_width_mm <- max(0, scalar_or_default(profile$geometry$max_panel_text_width_mm, 0))
+  text_height_mm <- max(0, scalar_or_default(profile$geometry$max_panel_text_height_mm, 0))
+  cell_count <- max(1, n_x * n_y)
+  grid_size_score <- min(1, max(0, (cell_count - 36) / 108))
+  safe_gap_mm <- max(0, scalar_or_default(gap_mm, 0)) *
+    (0.25 + 0.75 * grid_size_score)
+
+  list(
+    width_mm = regular_grid_score * n_x * (text_width_mm + safe_gap_mm),
+    height_mm = regular_grid_score * n_y * (text_height_mm + safe_gap_mm)
   )
 }
 
@@ -688,6 +804,180 @@ adjusted_panel_limits_for_density <- function(profile, preferences) {
     preferred_panel_height_mm = preferred_panel_height_mm,
     preferred_width_multiplier = preferred_panel_width_mm / preferences$min_panel_width_mm,
     preferred_height_multiplier = preferred_panel_height_mm / preferences$min_panel_height_mm
+  )
+}
+
+estimate_inner_content_multipliers <- function(profile) {
+  n_panels <- max(1, scalar_or_default(profile$panels$n_panels, 1))
+  n_annotations <- scalar_or_default(profile$geometry$n_nonempty_text_labels, 0)
+  annotations_per_panel <- n_annotations / n_panels
+  max_unique_x <- scalar_or_default(profile$geometry$max_unique_x_per_panel, NA_real_)
+  max_unique_y <- scalar_or_default(profile$geometry$max_unique_y_per_panel, NA_real_)
+  safe_unique_x <- if (is.finite(max_unique_x)) max_unique_x else 0
+  safe_unique_y <- if (is.finite(max_unique_y)) max_unique_y else 0
+  max_layer_rows <- scalar_or_default(
+    profile$geometry$max_layer_rows_per_panel,
+    profile$density$n_points_per_panel_estimate
+  )
+  regular_grid_score <- min(1, max(0, scalar_or_default(profile$geometry$regular_grid_score, 0)))
+  summary_detail_score <- min(1, max(0, scalar_or_default(profile$geometry$summary_detail_score, 0)))
+  bounded_layer_fraction <- min(1, max(0, scalar_or_default(profile$geometry$bounded_layer_fraction, 0)))
+  max_glyph_rows <- scalar_or_default(profile$geometry$max_glyph_rows_per_panel, 0)
+  total_glyph_rows <- scalar_or_default(profile$geometry$total_glyph_rows, 0)
+  max_groups <- max(1, scalar_or_default(profile$geometry$max_groups_per_panel, 1))
+  has_trajectory <- min(1, max(0, scalar_or_default(profile$geometry$has_trajectory_content, 0)))
+  annotation_suppression <- 1 - min(1, annotations_per_panel / 5)
+  x_resolution_score <- if (is.finite(max_unique_x) && max_unique_x > 20) {
+    min(1, max(0, log2(max_unique_x / 20) / 2))
+  } else {
+    0
+  }
+  sequence_score <- x_resolution_score * has_trajectory * (1 - regular_grid_score) *
+    (1 - summary_detail_score) * annotation_suppression
+  annotation_fraction <- if (is.finite(max_layer_rows) && max_layer_rows > 0) {
+    annotations_per_panel / max_layer_rows
+  } else {
+    0
+  }
+  annotation_shrink_score <- min(1, max(0, (annotation_fraction - 0.08) / 0.14)) *
+    (1 - regular_grid_score)
+  grid_cell_count_score <- if (is.finite(max_layer_rows)) {
+    min(1, max(0, (max_layer_rows - 64) / 288))
+  } else {
+    0
+  }
+  compact_grid_score <- regular_grid_score * grid_cell_count_score *
+    as.numeric(n_panels == 1) * as.numeric(n_annotations == 0)
+  matrix_annotation_score <- regular_grid_score * min(1, max(0, annotation_fraction))
+  annotation_grid_size_score <- if (is.finite(max_layer_rows)) {
+    0.5 + 0.5 * min(1, max(0, (max_layer_rows - 36) / 108))
+  } else {
+    0.5
+  }
+  legend_width_mm <- scalar_or_default(profile$geometry$legend_width_mm, 0)
+  legend_height_mm <- scalar_or_default(profile$geometry$legend_height_mm, 0)
+  legend_shrink_score <- min(1, max(0, (legend_width_mm - 40) / 45))
+  summary_legend_score <- summary_detail_score * min(1, max(0, legend_width_mm / 40))
+  glyph_reference_rows <- max(max_glyph_rows, total_glyph_rows / sqrt(n_panels))
+  glyph_count_score <- if (glyph_reference_rows > 0) {
+    0.35 + 0.65 * min(1, max(0, log2(glyph_reference_rows / 8) / 4))
+  } else {
+    0
+  }
+  glyph_dense_attenuation <- 1 - min(1, max(0, (max_glyph_rows - 600) / 1200))
+  glyph_content_score <- glyph_count_score * glyph_dense_attenuation
+  max_panel_text_width_mm <- scalar_or_default(profile$geometry$max_panel_text_width_mm, 0)
+  labelled_glyph_score <- glyph_content_score * min(1, annotations_per_panel / 5) *
+    min(1, max(0, max_panel_text_width_mm / 8))
+  faceted_glyph_score <- glyph_content_score * min(1, log2(n_panels) / 3)
+  dense_cloud_score <- as.numeric(max_glyph_rows > 0) *
+    min(1, max(0, (max_glyph_rows - 1000) / 4000)) *
+    (1 - bounded_layer_fraction)
+  series_score <- has_trajectory * min(1, max(0, log2(max_groups) / log2(12)))
+  dense_curve_score <- bounded_layer_fraction * (1 - regular_grid_score) *
+    min(1, max(0, (safe_unique_x - 150) / 350)) *
+    min(1, max(0, (max_layer_rows - 500) / 1000))
+  few_x_dense_y_score <- bounded_layer_fraction * (1 - regular_grid_score) *
+    min(1, max(0, (12 - safe_unique_x) / 8)) *
+    min(1, max(0, if (safe_unique_y > 0) log2(safe_unique_y / 100) / 4 else 0))
+  mixed_bound_score <- 4 * bounded_layer_fraction * (1 - bounded_layer_fraction) *
+    (1 - regular_grid_score)
+  mixed_bound_structure_score <- max(
+    min(1, max(0, (safe_unique_x - 15) / 10)),
+    if (is.finite(max_unique_y)) {
+      1 - min(1, max(0, (safe_unique_y - 8) / 8))
+    } else {
+      0
+    }
+  )
+  faceted_grid_score <- regular_grid_score * as.numeric(n_panels > 1) *
+    min(1, max(0, (max_layer_rows - 50) / 70))
+  fixed_width_mm <- scalar_or_default(profile$fixed_size$left_mm, 0) +
+    scalar_or_default(profile$fixed_size$right_mm, 0)
+  bottom_burden_mm <- scalar_or_default(profile$fixed_size$bottom_mm, 0)
+  bottom_axis_burden_score <- min(1, max(0, (bottom_burden_mm - 12) / 12))
+  few_category_score <- min(1, max(0, (10 - safe_unique_x) / 5))
+  many_y_label_score <- min(1, max(0, (fixed_width_mm - 30) / 35)) *
+    min(1, max(0, (safe_unique_y - 8) / 6))
+  many_panel_width_score <- min(1, max(0, (n_panels - 12) / 23))
+  faceted_glyph_score <- faceted_glyph_score * (1 - many_panel_width_score)
+  annotation_shrink_strength <- annotation_shrink_score^3
+
+  width_growth <- max(
+    1 + (0.25 + 0.32 * log2(n_panels)) * sequence_score,
+    1 + 0.5 * summary_legend_score,
+    1 + 0.32 * glyph_content_score,
+    1 + 0.5 * faceted_glyph_score,
+    1 + 1.5 * dense_cloud_score,
+    1 + 0.4 * series_score,
+    1 + 0.95 * matrix_annotation_score * annotation_grid_size_score,
+    1 + 0.8 * labelled_glyph_score,
+    1 + 0.2 * faceted_grid_score,
+    1 + 0.2 * bottom_axis_burden_score * few_category_score,
+    1 + 0.3 * many_y_label_score
+  )
+  height_growth <- max(
+    1 + (0.12 * log2(n_panels) + 0.1 * bounded_layer_fraction) * (1 - sequence_score)^2,
+    1 + 0.5 * summary_legend_score,
+    1 + 0.35 * summary_detail_score * (1 - min(1, legend_width_mm / 40)),
+    1 + 0.32 * glyph_content_score * (1 - many_y_label_score),
+    1 + (0.35 + 0.2 * as.numeric(max_glyph_rows > 0)) * sequence_score *
+      as.numeric(n_panels == 1),
+    1 + 0.3 * series_score,
+    1 + 1.6 * few_x_dense_y_score,
+    1 + 0.5 * faceted_glyph_score,
+    1 + 0.22 * mixed_bound_score * mixed_bound_structure_score,
+    1 + 0.35 * faceted_grid_score,
+    1 + 0.5 * matrix_annotation_score * annotation_grid_size_score,
+    1 + 1.1 * bottom_axis_burden_score * few_category_score,
+    1 + 0.56 * dense_cloud_score,
+    1 + 0.8 * labelled_glyph_score
+  )
+  width_shrink <- min(
+    1 - 0.5 * legend_shrink_score,
+    1 - 0.35 * compact_grid_score,
+    1 - 0.55 * annotation_shrink_strength,
+    1 - 0.33 * dense_curve_score,
+    1 - 0.45 * many_panel_width_score
+  )
+  moderate_sequence_rows_score <- if (is.finite(max_layer_rows)) {
+    1 - min(1, max(0, (max_layer_rows - 150) / 500))
+  } else {
+    0
+  }
+  legend_free_single_panel_sequence <- sequence_score * moderate_sequence_rows_score *
+    as.numeric(n_panels == 1 && legend_width_mm <= 0 && legend_height_mm <= 0)
+  sequence_height_coefficient <- (0.4 +
+    0.15 * min(1, log2(n_panels) / 2)) *
+    (1 - 0.5 * legend_free_single_panel_sequence)
+  height_shrink <- min(
+    1 - sequence_height_coefficient * sequence_score^1.5,
+    1 - 0.35 * compact_grid_score,
+    1 - 0.55 * annotation_shrink_strength,
+    1 - 0.25 * dense_curve_score,
+    1 - 0.1 * dense_cloud_score,
+    1 - 0.2 * many_y_label_score
+  )
+  width_multiplier <- if (summary_legend_score > 0.5) width_growth else width_growth * width_shrink
+  height_multiplier <- if (summary_legend_score > 0.5) height_growth else height_growth * height_shrink
+  validation_fixed_width_scale <- max(
+    0.8,
+    1 - 0.1 * legend_shrink_score
+  )
+  validation_fixed_height_scale <- max(
+    0.5,
+    1 - 0.5 * sequence_score / (1 + log2(n_panels))
+  )
+  list(
+    width_multiplier = width_multiplier,
+    height_multiplier = height_multiplier,
+    sequence_score = sequence_score,
+    summary_detail_score = summary_detail_score,
+    compact_grid_score = compact_grid_score,
+    annotation_shrink_score = annotation_shrink_score,
+    legend_shrink_score = legend_shrink_score,
+    validation_fixed_width_scale = validation_fixed_width_scale,
+    validation_fixed_height_scale = validation_fixed_height_scale
   )
 }
 
