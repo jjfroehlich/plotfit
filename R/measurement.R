@@ -132,7 +132,9 @@ collect_text_grobs <- function(grob, component_type, component_name, path = char
       }
 
       for (label_index in seq_along(labels)) {
-        text_size <- measure_text_label_mm(labels[label_index], gp = gp, rotation = rotation)
+        # Store intrinsic, unrotated dimensions. Axis-fit calculations project
+        # these dimensions exactly once using the separately retained angle.
+        text_size <- measure_text_label_mm(labels[label_index], gp = gp, rotation = 0)
 
         rows[[length(rows) + 1]] <- data.frame(
           component_type = component_type,
@@ -439,10 +441,8 @@ estimate_plot_geometry <- function(
   }
 
   nonempty_text_label_count <- 0
-  text_layer_indices <- which(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
-  if (!is.null(built_plot) && !is.null(built_plot$data) && length(text_layer_indices) > 0) {
-    nonempty_text_label_count <- sum(vapply(text_layer_indices, function(layer_index) {
-      layer_data <- built_plot$data[[layer_index]]
+  if (!is.null(built_plot) && !is.null(built_plot$data)) {
+    nonempty_text_label_count <- sum(vapply(built_plot$data, function(layer_data) {
       if (is.null(layer_data$label)) {
         return(0)
       }

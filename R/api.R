@@ -177,7 +177,8 @@ suggest_patchwork_layout <- function(
     collect_axes = collect_axes,
     layout_engine = preferences$layout_engine,
     page_spec = page_spec,
-    preferences = preferences
+    preferences = preferences,
+    fit_functions = fit_functions
   )
   output_elapsed <- proc.time()[["elapsed"]] - output_started_at
 
@@ -192,7 +193,12 @@ suggest_patchwork_layout <- function(
   )
   validation_elapsed <- proc.time()[["elapsed"]] - validation_started_at
 
-  plot_diagnostics <- make_plot_diagnostics(profiles, frontier_summaries, selected$best_candidate)
+  plot_diagnostics <- make_plot_diagnostics(
+    profiles,
+    frontier_summaries,
+    selected$best_candidate,
+    pages = pages
+  )
   layout_diagnostics <- do.call(
     rbind,
     lapply(selected$candidates, function(candidate) candidate$diagnostics)
@@ -371,10 +377,10 @@ validate_layout_inputs <- function(
   text_height_mm <- base_size * 25.4 / 72
 
   if (is.null(min_panel_width_mm)) {
-    min_panel_width_mm <- 16 * text_height_mm
+    min_panel_width_mm <- 8 * text_height_mm
   }
   if (is.null(min_panel_height_mm)) {
-    min_panel_height_mm <- 12 * text_height_mm
+    min_panel_height_mm <- 6 * text_height_mm
   }
   if (is.null(min_panel_area_mm2)) {
     min_panel_area_mm2 <- min_panel_width_mm * min_panel_height_mm
@@ -396,6 +402,8 @@ validate_layout_inputs <- function(
     target_label_gap_mm = target_label_gap_mm,
     min_panel_width_mm = min_panel_width_mm,
     min_panel_height_mm = min_panel_height_mm,
+    target_panel_width_mm = 2 * min_panel_width_mm,
+    target_panel_height_mm = 2 * min_panel_height_mm,
     min_panel_area_mm2 = min_panel_area_mm2,
     max_grid_cols = as.integer(max_grid_cols),
     max_grid_rows = as.integer(max_grid_rows),

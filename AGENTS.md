@@ -103,12 +103,22 @@ Default demo output should be only:
 
 - `demo_output/layout_feedback.pdf`
 - `demo_output/previous/layout_feedback.pdf`
+- `demo_output/archive/structural-scaling-baseline.pdf`
+- `demo_output/archive/README.md`
 - `man/figures/readme-layout-comparison.png`
 
 A canonical all-scenarios run must copy the existing feedback PDF to the
 `previous/` path immediately before replacing it. Scenario-only and temporary
 runs must use a separate PDF name or output directory, retain the canonical
 global `(pN)` identifiers, and must not rotate the canonical comparison pair.
+The permanent structural-scaling baseline under `demo_output/archive/` is
+immutable and must never be rotated or replaced by the demo workflow.
+
+Automatic inner scaling must be derived from measured physical requirements.
+Do not add scale caps, floors, or multipliers selected by geom class. Geom
+classes may appear in diagnostics, but they must not influence layout scoring
+or inner footprint sizing. If required measurements are unavailable or do not
+validate, retain the full allocated footprint for the affected plot.
 
 Use `--diagnostics` only when TSV diagnostics, warnings, or generated
 patchwork code are intentionally needed.

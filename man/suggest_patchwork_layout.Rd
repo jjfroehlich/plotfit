@@ -74,7 +74,7 @@ draw_layout_pages(result)
 \item{result}{A result object returned by \code{suggest_patchwork_layout()}, or a list of page objects.}
 }
 \value{
-A list with drawable \code{pages}, \code{plot_diagnostics}, \code{layout_diagnostics}, retained \code{candidates}, \code{performance_diagnostics}, \code{warnings}, and measurement \code{assumptions}. Performance diagnostics include stage timings, candidate-search counts and stop reason, and per-plot fit-cache statistics. Each page includes physical \code{col_widths_mm}, \code{row_heights_mm}, content dimensions, inferred \code{inner_scales}, best-effort editable \code{patchwork_code}, and either a \code{patchwork} object or a \code{grob}, depending on \code{layout_engine}.
+A list with drawable \code{pages}, \code{plot_diagnostics}, \code{layout_diagnostics}, retained \code{candidates}, \code{performance_diagnostics}, \code{warnings}, and measurement \code{assumptions}. Plot diagnostics include measured required width and height, independently inferred inner scales, the limiting constraint for each dimension, and bounded footprint-validation status. Performance diagnostics include stage timings, candidate-search counts and stop reason, and per-plot fit-cache statistics. Each page includes physical \code{col_widths_mm}, \code{row_heights_mm}, content dimensions, inferred \code{inner_scales}, best-effort editable \code{patchwork_code}, and either a \code{patchwork} object or a \code{grob}, depending on \code{layout_engine}.
 }
 \description{
 Optimizes layouts for ordinary lists of \code{ggplot2} plots. The function measures plots on a target-like PDF device, infers how much physical space each plot needs, searches page layouts, optimizes row and column sizes, and optionally chooses a multipage solution.

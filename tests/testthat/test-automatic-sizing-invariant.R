@@ -141,6 +141,34 @@ test_that("optimizer source contains no demo-specific plot sizing branches", {
   expect_equal(matches, character())
 })
 
+test_that("active sizing code contains no geom-category branches", {
+  source_paths <- file.path("R", c("fit.R", "output.R"))
+  if (!all(file.exists(source_paths))) {
+    source_paths <- file.path("..", "..", source_paths)
+  }
+  source_text <- paste(unlist(lapply(source_paths, readLines, warn = FALSE)), collapse = "\n")
+  expect_false(grepl("Geom[A-Z]", source_text))
+  expect_false(grepl("geom_classes", source_text, fixed = TRUE))
+})
+
+test_that("permanent structural baseline PDF remains immutable", {
+  archive_pdf <- file.path("demo_output", "archive", "structural-scaling-baseline.pdf")
+  archive_manifest <- file.path("demo_output", "archive", "README.md")
+  if (!file.exists(archive_pdf)) {
+    archive_pdf <- file.path("..", "..", archive_pdf)
+    archive_manifest <- file.path("..", "..", archive_manifest)
+  }
+  expect_true(file.exists(archive_pdf))
+  expect_true(file.exists(archive_manifest))
+  expect_equal(
+    unname(tools::md5sum(archive_pdf)),
+    "523e0ccd60b3afd80aa9709710bca850"
+  )
+  manifest <- paste(readLines(archive_manifest, warn = FALSE), collapse = "\n")
+  expect_match(manifest, "baseline-structural-scaling-2026-08-08", fixed = TRUE)
+  expect_match(manifest, "59A4FE2598C5340473BBF1D0FEFDC2E3AB287B8CE2B87A40D415CF3FF80D7D63", fixed = TRUE)
+})
+
 test_that("automatic inner scaling is independent of plot names and order", {
   fixed_text_plot <- ggplot2::ggplot(
     mtcars,

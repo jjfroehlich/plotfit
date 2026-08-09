@@ -25,7 +25,8 @@ build_layout_pages <- function(
     collect_axes,
     layout_engine,
     page_spec,
-    preferences) {
+    preferences,
+    fit_functions = NULL) {
 
   pages <- vector("list", length(best_candidate$pages))
 
@@ -34,7 +35,12 @@ build_layout_pages <- function(
     layout_string <- layout_matrix_to_string(page$layout_matrix)
     col_widths_mm <- page$col_widths_mm %||% (page$widths / sum(page$widths) * page_spec$width_mm)
     row_heights_mm <- page$row_heights_mm %||% (page$heights / sum(page$heights) * page_spec$height_mm)
-    plot_scales <- infer_inner_plot_scales(plots[page$plot_ids], page$diagnostics)
+    plot_scales <- infer_inner_plot_scales(
+      plots[page$plot_ids],
+      page$diagnostics,
+      fit_functions = fit_functions
+    )
+    page$diagnostics <- merge_inner_scale_diagnostics(page$diagnostics, plot_scales)
 
     patchwork_object <- build_patchwork_object(
       plot_list = plots[page$plot_ids],
@@ -144,7 +150,7 @@ build_patchwork_object <- function(
   patchwork_object
 }
 
-infer_inner_plot_scales <- function(plot_list, diagnostics = NULL) {
+infer_inner_plot_scales <- function(plot_list, diagnostics = NULL, fit_functions = NULL) {
   rows <- vector("list", length(plot_list))
 
   for (plot_index in seq_along(plot_list)) {
@@ -159,10 +165,23 @@ infer_inner_plot_scales <- function(plot_list, diagnostics = NULL) {
     }
 
     scale <- infer_inner_plot_scale(plot_list[[plot_index]], diagnostic)
+    fit_function <- if (!is.null(fit_functions) && plot_id %in% names(fit_functions)) {
+      fit_functions[[plot_id]]
+    } else {
+      NULL
+    }
+    validated <- validate_inner_plot_scale(
+      scale = scale,
+      diagnostic = diagnostic,
+      fit_function = fit_function,
+      max_iterations = 4L
+    )
     rows[[plot_index]] <- data.frame(
       plot_id = plot_id,
-      scale_x = scale$scale_x,
-      scale_y = scale$scale_y,
+      scale_x = validated$scale_x,
+      scale_y = validated$scale_y,
+      footprint_validation_status = validated$status,
+      footprint_validation_iterations = validated$iterations,
       stringsAsFactors = FALSE
     )
   }
@@ -172,24 +191,11 @@ infer_inner_plot_scales <- function(plot_list, diagnostics = NULL) {
 
 infer_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
   hard_loss <- scalar_or_default(diagnostic$hard_loss, 0)
-  label_gap_loss <- scalar_or_default(diagnostic$label_gap_loss, NA_real_)
-  panel_minimum_loss <- scalar_or_default(diagnostic$panel_minimum_loss, NA_real_)
-  facet_loss <- scalar_or_default(diagnostic$facet_loss, NA_real_)
-  label_only_hard_violation <- is.finite(label_gap_loss) && label_gap_loss > 0 &&
-    is.finite(panel_minimum_loss) && panel_minimum_loss <= 0 &&
-    is.finite(facet_loss) && facet_loss <= 0
-  if (is.finite(hard_loss) && hard_loss > 0 && !label_only_hard_violation) {
+  if (is.finite(hard_loss) && hard_loss > 0) {
     return(list(scale_x = 1, scale_y = 1))
   }
-
-  structural_scale <- infer_structural_inner_plot_scale(plot, diagnostic)
-  scale <- structural_scale
-
-  structural_floor <- infer_structural_inner_plot_floor(plot, diagnostic)
-  list(
-    scale_x = min(1, max(scale$scale_x, structural_floor$scale_x)),
-    scale_y = min(1, max(scale$scale_y, structural_floor$scale_y))
-  )
+  measured <- infer_measured_inner_plot_scale(diagnostic)
+  if (is.null(measured)) list(scale_x = 1, scale_y = 1) else measured
 }
 
 infer_measured_inner_plot_scale <- function(diagnostic = data.frame()) {
@@ -204,331 +210,96 @@ infer_measured_inner_plot_scale <- function(diagnostic = data.frame()) {
     return(NULL)
   }
 
-  panel_width_mm <- scalar_or_default(diagnostic$panel_width_mm, NA_real_)
-  panel_height_mm <- scalar_or_default(diagnostic$panel_height_mm, NA_real_)
-  effective_panel_width_mm <- scalar_or_default(diagnostic$effective_panel_width_mm, panel_width_mm)
-  effective_panel_height_mm <- scalar_or_default(diagnostic$effective_panel_height_mm, panel_height_mm)
-  preferred_width_mm <- scalar_or_default(diagnostic$preferred_width_mm, NA_real_)
-  preferred_height_mm <- scalar_or_default(diagnostic$preferred_height_mm, NA_real_)
-
-  fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, NA_real_)
-  if (!is.finite(fixed_width_mm) && is.finite(panel_width_mm)) {
-    fixed_width_mm <- max(0, allocated_width_mm - panel_width_mm)
-  }
-  fixed_height_mm <- scalar_or_default(diagnostic$fixed_height_mm, NA_real_)
-  if (!is.finite(fixed_height_mm) && is.finite(panel_height_mm)) {
-    fixed_height_mm <- max(0, allocated_height_mm - panel_height_mm)
-  }
-
-  target_widths <- preferred_width_mm
-  if (is.finite(fixed_width_mm) && is.finite(effective_panel_width_mm)) {
-    target_widths <- c(target_widths, fixed_width_mm + effective_panel_width_mm)
-  }
-  target_heights <- preferred_height_mm
-  if (is.finite(fixed_height_mm) && is.finite(effective_panel_height_mm)) {
-    target_heights <- c(target_heights, fixed_height_mm + effective_panel_height_mm)
-  }
-
-  target_widths <- target_widths[is.finite(target_widths) & target_widths > 0]
-  target_heights <- target_heights[is.finite(target_heights) & target_heights > 0]
-  if (length(target_widths) == 0 && length(target_heights) == 0) {
+  reliable <- diagnostic$footprint_measurement_reliable
+  if (!is.null(reliable) && length(reliable) > 0 && !isTRUE(reliable[1])) {
     return(NULL)
   }
+  required_width_mm <- scalar_or_default(
+    diagnostic$required_width_mm,
+    scalar_or_default(diagnostic$preferred_width_mm, NA_real_)
+  )
+  required_height_mm <- scalar_or_default(
+    diagnostic$required_height_mm,
+    scalar_or_default(diagnostic$preferred_height_mm, NA_real_)
+  )
+  if (!is.finite(required_width_mm) || required_width_mm <= 0 ||
+      !is.finite(required_height_mm) || required_height_mm <= 0) return(NULL)
 
-  min_inner_scale <- 0.5
-  scale_x <- if (length(target_widths) == 0) 1 else max(min_inner_scale, min(1, max(target_widths) / allocated_width_mm))
-  scale_y <- if (length(target_heights) == 0) 1 else max(min_inner_scale, min(1, max(target_heights) / allocated_height_mm))
-
-  if (scale_x > 0.95) {
-    scale_x <- 1
-  }
-  if (scale_y > 0.95) {
-    scale_y <- 1
-  }
+  scale_x <- min(1, max(0.05, required_width_mm / allocated_width_mm))
+  scale_y <- min(1, max(0.05, required_height_mm / allocated_height_mm))
+  if (scale_x > 0.995) scale_x <- 1
+  if (scale_y > 0.995) scale_y <- 1
 
   list(scale_x = scale_x, scale_y = scale_y)
 }
 
-infer_structural_inner_plot_scale <- function(plot, diagnostic = data.frame()) {
-  scale_x <- 1
-  scale_y <- 1
-  aspect <- infer_theme_aspect_ratio(plot)
-  geom_classes <- vapply(plot$layers, function(layer) class(layer$geom)[1], character(1))
-  has_text_geom <- any(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
-  has_point_geom <- any(grepl("GeomPoint|GeomJitter|GeomDotplot", geom_classes))
-  has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
-  has_ribbon_geom <- any(grepl("GeomRibbon|GeomArea", geom_classes))
-  has_density_geom <- any(grepl("GeomDensity", geom_classes))
-  has_bar_geom <- any(grepl("GeomBar|GeomCol|GeomHistogram", geom_classes))
-  has_boxplot_geom <- any(grepl("GeomBoxplot", geom_classes))
-  has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
-  has_interval_geom <- any(grepl("GeomPointrange|GeomErrorbar|GeomLinerange|GeomCrossbar", geom_classes))
-  has_reference_line <- any(grepl("GeomHline|GeomVline|GeomAbline", geom_classes))
-  has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
-  has_horizontal_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
-  n_marks_per_panel <- scalar_or_default(diagnostic$n_marks_per_panel, NA_real_)
-  n_point_marks_per_panel <- scalar_or_default(diagnostic$n_point_marks_per_panel, NA_real_)
-  n_nonempty_text_labels <- scalar_or_default(diagnostic$n_nonempty_text_labels, NA_real_)
-  n_panel_rows <- scalar_or_default(diagnostic$n_panel_rows, 1)
-  n_panel_cols <- scalar_or_default(diagnostic$n_panel_cols, 1)
-  n_panels <- scalar_or_default(diagnostic$n_panels, 1)
-  fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, 0)
+validate_inner_plot_scale <- function(scale, diagnostic, fit_function = NULL, max_iterations = 4L) {
+  scale_x <- min(1, max(0.05, scalar_or_default(scale$scale_x, 1)))
+  scale_y <- min(1, max(0.05, scalar_or_default(scale$scale_y, 1)))
   allocated_width_mm <- scalar_or_default(diagnostic$allocated_width_mm, NA_real_)
   allocated_height_mm <- scalar_or_default(diagnostic$allocated_height_mm, NA_real_)
-  legend_width_mm <- scalar_or_default(diagnostic$legend_width_mm, NA_real_)
-  legend_height_mm <- scalar_or_default(diagnostic$legend_height_mm, NA_real_)
-  label_gap_loss <- scalar_or_default(diagnostic$label_gap_loss, 0)
-  panel_minimum_loss <- scalar_or_default(diagnostic$panel_minimum_loss, 0)
-  facet_loss <- scalar_or_default(diagnostic$facet_loss, 0)
-  label_only_hard_violation <- label_gap_loss > 0 &&
-    panel_minimum_loss <= 0 && facet_loss <= 0
 
-  if (plot_is_faceted(plot)) {
-    if (has_bar_geom) {
-      scale_x <- min(scale_x, 0.5)
-      scale_y <- min(scale_y, 0.5)
-    } else if (has_tile_geom && has_rotated_x_labels) {
-      heatmap_density_pressure <- if (is.finite(n_marks_per_panel)) {
-        min(1, max(0, log2(max(30, n_marks_per_panel) / 30) / 2))
-      } else {
-        0
-      }
-      scale_x <- min(scale_x, 4 / 9 + heatmap_density_pressure / 9)
-      scale_y <- min(scale_y, 0.75 + 0.15 * heatmap_density_pressure)
-    } else if (has_point_geom) {
-      if (is.finite(n_panels) && n_panels >= 12 &&
-          is.finite(n_panel_rows) && is.finite(n_panel_cols) &&
-          n_panel_rows > n_panel_cols) {
-        scale_x <- min(scale_x, 1 / 3)
-        scale_y <- min(scale_y, 0.75)
-      } else {
-        scale_y <- min(scale_y, 0.5)
-      }
-    } else if (has_line_geom) {
-      facet_line_scale <- min(0.9, max(0.75, 1 - 0.1 * sqrt(max(1, n_panels))))
-      label_gap_protection <- min(0.1, sqrt(max(0, label_gap_loss)))
-      facet_line_scale <- min(0.95, facet_line_scale + label_gap_protection)
-      scale_x <- min(scale_x, facet_line_scale)
-      scale_y <- min(scale_y, facet_line_scale)
+  if (is.null(fit_function)) {
+    return(list(scale_x = scale_x, scale_y = scale_y, status = "not_run", iterations = 0L))
+  }
+  if (!is.finite(allocated_width_mm) || allocated_width_mm <= 0 ||
+      !is.finite(allocated_height_mm) || allocated_height_mm <= 0) {
+    return(list(scale_x = 1, scale_y = 1, status = "fallback_unmeasurable", iterations = 0L))
+  }
+
+  for (iteration in seq_len(max_iterations)) {
+    fit <- fit_function(allocated_width_mm * scale_x, allocated_height_mm * scale_y)
+    if (is.finite(fit$hard_violation_mm) && fit$hard_violation_mm <= 0) {
+      return(list(scale_x = scale_x, scale_y = scale_y, status = "validated", iterations = iteration))
     }
-  } else if (has_line_geom) {
-    line_scale_x <- if (has_point_geom) {
-      1
-    } else if (has_ribbon_geom) {
-      4 / 9
-    } else {
-      2 / 3
+
+    width_failed <- max(
+      scalar_or_default(fit$x_label_violation_mm, 0),
+      scalar_or_default(fit$panel_width_violation_mm, 0),
+      scalar_or_default(fit$facet_panel_width_violation_mm, 0),
+      scalar_or_default(fit$footprint_width_violation_mm, 0),
+      na.rm = TRUE
+    ) > 0
+    height_failed <- max(
+      scalar_or_default(fit$y_label_violation_mm, 0),
+      scalar_or_default(fit$panel_height_violation_mm, 0),
+      scalar_or_default(fit$facet_panel_height_violation_mm, 0),
+      scalar_or_default(fit$footprint_height_violation_mm, 0),
+      na.rm = TRUE
+    ) > 0
+    aspect_constrained <- is.finite(scalar_or_default(fit$target_panel_aspect, NA_real_))
+    panel_or_facet_failed <- max(
+      scalar_or_default(fit$panel_width_violation_mm, 0),
+      scalar_or_default(fit$panel_height_violation_mm, 0),
+      scalar_or_default(fit$facet_panel_width_violation_mm, 0),
+      scalar_or_default(fit$facet_panel_height_violation_mm, 0),
+      scalar_or_default(fit$footprint_width_violation_mm, 0),
+      scalar_or_default(fit$footprint_height_violation_mm, 0),
+      na.rm = TRUE
+    ) > 0
+    if (aspect_constrained && panel_or_facet_failed) {
+      width_failed <- TRUE
+      height_failed <- TRUE
     }
-    scale_x <- min(scale_x, line_scale_x)
-    scale_y <- min(scale_y, 0.5)
-  }
-
-  if (!plot_is_faceted(plot) && has_boxplot_geom && has_point_geom &&
-      !has_rotated_x_labels && !plot_has_external_legend(plot)) {
-    distribution_label_protection <- min(0.125, 0.1 * sqrt(max(0, label_gap_loss)))
-    scale_x <- min(scale_x, 0.5 + distribution_label_protection)
-  }
-
-  if (!plot_is_faceted(plot) && has_tile_geom && !has_text_geom) {
-    scale_x <- min(scale_x, 2 / 3)
-    scale_y <- min(scale_y, 2 / 3)
-  }
-
-  if (!plot_is_faceted(plot) && has_density_geom) {
-    scale_x <- min(scale_x, 2 / 3)
-  }
-
-  if (has_interval_geom && !plot_is_faceted(plot)) {
-    interval_scale_x <- if (is.finite(n_marks_per_panel) && n_marks_per_panel >= 12 &&
-        is.finite(fixed_width_mm) && fixed_width_mm >= 40) {
-      0.25
-    } else {
-      0.75
+    if (!width_failed && !height_failed) {
+      width_failed <- TRUE
+      height_failed <- TRUE
     }
-    long_label_interval <- is.finite(n_marks_per_panel) && n_marks_per_panel >= 12 &&
-      is.finite(fixed_width_mm) && fixed_width_mm >= 40
-    scale_x <- min(scale_x, interval_scale_x)
-    scale_y <- min(scale_y, if (long_label_interval) 0.75 else 2 / 3)
+    if (width_failed) scale_x <- (scale_x + 1) / 2
+    if (height_failed) scale_y <- (scale_y + 1) / 2
   }
 
-  if (has_reference_line && has_point_geom && !has_text_geom &&
-      !has_interval_geom && !plot_is_faceted(plot) &&
-      is.finite(aspect) && aspect >= 0.75) {
-    scale_x <- min(scale_x, 0.5)
-    scale_y <- min(scale_y, 0.5)
-  }
-
-  if (is.finite(aspect) && aspect >= 0.75 && has_horizontal_legend) {
-    scale_x <- min(scale_x, 2 / 3)
-    scale_y <- min(scale_y, 2 / 3)
-  }
-
-  if (has_line_geom && has_horizontal_legend &&
-      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
-      is.finite(allocated_height_mm) && allocated_height_mm > 0 &&
-      is.finite(legend_width_mm) && legend_width_mm > 0 &&
-      is.finite(legend_height_mm) && legend_height_mm > 0) {
-    legend_row_pressure <- min(1, max(0, (legend_height_mm - 3) / 6))
-    legend_width_scale <- min(2 / 3, max(0.25, (legend_width_mm + 4) / allocated_width_mm))
-    legend_height_scale <- min(2 / 3, max(0.2, (legend_height_mm + 8) / allocated_height_mm))
-    scale_x <- min(scale_x, (1 - legend_row_pressure) * (2 / 3) +
-      legend_row_pressure * legend_width_scale)
-    scale_y <- min(scale_y, (1 - legend_row_pressure) * 0.5 +
-      legend_row_pressure * legend_height_scale)
-  }
-
-  if (!plot_is_faceted(plot) && has_point_geom && !has_text_geom &&
-      !has_interval_geom && !has_reference_line &&
-      !plot_has_external_legend(plot) &&
-      is.finite(aspect) && aspect >= 0.75) {
-    point_scale <- 2 / 3
-    if (is.finite(n_point_marks_per_panel) && n_point_marks_per_panel > 6000) {
-      saturation_pressure <- min(1, log2(n_point_marks_per_panel / 6000) / log2(3))
-      point_scale <- 2 / 3 - saturation_pressure / 3
-    }
-    scale_x <- min(scale_x, point_scale)
-    scale_y <- min(scale_y, point_scale)
-  }
-
-  if (!plot_is_faceted(plot) && has_bar_geom && !has_rotated_x_labels &&
-      is.finite(aspect) && aspect < 0.75) {
-    scale_x <- min(scale_x, 0.5)
-  }
-
-  if (has_boxplot_geom && has_rotated_x_labels && !has_horizontal_legend) {
-    scale_x <- min(scale_x, 2 / 3)
-    scale_y <- min(scale_y, 2 / 3)
-  }
-
-  if (has_text_geom && is.finite(aspect) && aspect >= 0.75) {
-    annotation_scale <- 1
-    if (is.finite(n_nonempty_text_labels) && n_nonempty_text_labels < 10) {
-      annotation_scale <- 2 / 3
-    }
-    if (has_tile_geom && is.finite(n_nonempty_text_labels) && n_nonempty_text_labels >= 10) {
-      matrix_scale <- 0.25 + 0.25 * sqrt(36 / n_nonempty_text_labels)
-      matrix_scale <- min(0.625, max(0.375, matrix_scale))
-      annotation_scale <- min(annotation_scale, matrix_scale)
-    }
-    scale_x <- min(scale_x, annotation_scale)
-    scale_y <- min(scale_y, annotation_scale)
-  }
-
-  if (has_rotated_x_labels && has_bar_geom && is.finite(n_marks_per_panel)) {
-    sparse_bar_scale_x <- if (label_only_hard_violation) {
-      0.625
-    } else {
-      min(0.5, max(1 / 3, 8 / 27 + n_marks_per_panel / 135))
-    }
-    sparse_bar_scale_y <- if (label_only_hard_violation) {
-      0.5
-    } else {
-      min(1, max(2 / 3, 5 / 9 + n_marks_per_panel / 45))
-    }
-    scale_x <- min(scale_x, sparse_bar_scale_x)
-    scale_y <- min(scale_y, sparse_bar_scale_y)
-  }
-
-  list(scale_x = scale_x, scale_y = scale_y)
+  list(scale_x = 1, scale_y = 1, status = "fallback_full_size", iterations = as.integer(max_iterations))
 }
 
-infer_structural_inner_plot_floor <- function(plot, diagnostic = data.frame()) {
-  scale_x <- 0
-  scale_y <- 0
-  geom_classes <- vapply(plot$layers, function(layer) class(layer$geom)[1], character(1))
-  has_point_geom <- any(grepl("GeomPoint|GeomJitter|GeomDotplot", geom_classes))
-  has_text_geom <- any(grepl("GeomText|GeomLabel|GeomTextRepel|GeomLabelRepel", geom_classes))
-  has_tile_geom <- any(grepl("GeomTile|GeomRaster", geom_classes))
-  has_line_geom <- any(grepl("GeomLine|GeomPath|GeomStep", geom_classes))
-  has_interval_geom <- any(grepl("GeomPointrange|GeomErrorbar|GeomLinerange|GeomCrossbar", geom_classes))
-  has_distribution_geom <- any(grepl("GeomBoxplot|GeomViolin", geom_classes))
-  has_violin_geom <- any(grepl("GeomViolin", geom_classes))
-  has_bottom_or_top_legend <- plot_external_legend_position(plot) %in% c("bottom", "top")
-  has_rotated_x_labels <- plot_has_rotated_x_labels(plot)
-
-  allocated_width_mm <- scalar_or_default(diagnostic$allocated_width_mm, NA_real_)
-  allocated_height_mm <- scalar_or_default(diagnostic$allocated_height_mm, NA_real_)
-  fixed_width_mm <- scalar_or_default(diagnostic$fixed_width_mm, NA_real_)
-  effective_panel_width_mm <- scalar_or_default(diagnostic$effective_panel_width_mm, NA_real_)
-  legend_width_mm <- scalar_or_default(diagnostic$legend_width_mm, NA_real_)
-  legend_height_mm <- scalar_or_default(diagnostic$legend_height_mm, NA_real_)
-
-  n_point_marks_per_panel <- scalar_or_default(diagnostic$n_point_marks_per_panel, NA_real_)
-  if (is.finite(n_point_marks_per_panel) && n_point_marks_per_panel > 500) {
-    density_floor <- if (n_point_marks_per_panel <= 6000) {
-      density_pressure <- min(1, log2(n_point_marks_per_panel / 500) / log2(12))
-      0.8 + 0.2 * density_pressure
-    } else {
-      extreme_pressure <- min(1, log2(n_point_marks_per_panel / 6000) / log2(3))
-      1 - 2 * extreme_pressure / 3
-    }
-    scale_x <- max(scale_x, density_floor)
-    scale_y <- max(scale_y, density_floor)
-  }
-
-  if (has_distribution_geom && has_point_geom && !has_rotated_x_labels) {
-    scale_y <- 1
-  }
-  if (has_distribution_geom && has_point_geom && has_bottom_or_top_legend) {
-    scale_x <- 1
-    scale_y <- 1
-  }
-  if (has_violin_geom) {
-    scale_x <- 1
-    scale_y <- 1
-  }
-  if (has_line_geom && has_bottom_or_top_legend &&
-      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
-      is.finite(allocated_height_mm) && allocated_height_mm > 0 &&
-      is.finite(legend_width_mm) && legend_width_mm > 0 &&
-      is.finite(legend_height_mm) && legend_height_mm > 0) {
-    scale_x <- max(scale_x, min(1, (legend_width_mm + 4) / allocated_width_mm))
-    scale_y <- max(scale_y, min(1, (legend_height_mm + 8) / allocated_height_mm))
-  }
-  if (has_interval_geom &&
-      is.finite(allocated_width_mm) && allocated_width_mm > 0 &&
-      is.finite(fixed_width_mm) && fixed_width_mm >= 0 &&
-      is.finite(effective_panel_width_mm) && effective_panel_width_mm > 0) {
-    retained_panel_width_mm <- max(15, 0.1 * effective_panel_width_mm)
-    interval_width_floor <- min(1, (fixed_width_mm + retained_panel_width_mm) / allocated_width_mm)
-    scale_x <- max(scale_x, interval_width_floor)
-  }
-  if (has_text_geom && !has_tile_geom) {
-    scale_y <- max(scale_y, 0.4)
-  }
-
-  list(scale_x = scale_x, scale_y = scale_y)
-}
-
-plot_has_external_legend <- function(plot) {
-  !is.na(plot_external_legend_position(plot))
-}
-
-plot_external_legend_position <- function(plot) {
-  legend_position <- plot$theme$legend.position
-  if (is.null(legend_position)) {
-    return(NA_character_)
-  }
-  if (is.character(legend_position) && length(legend_position) > 0) {
-    position <- legend_position[1]
-    if (!position %in% c("none", "inside")) {
-      return(position)
-    }
-  }
-  NA_character_
-}
-
-plot_is_faceted <- function(plot) {
-  !inherits(plot$facet, "FacetNull")
-}
-
-plot_has_rotated_x_labels <- function(plot) {
-  axis_text_x <- plot$theme$axis.text.x
-  if (is.null(axis_text_x) || is.null(axis_text_x$angle)) {
-    return(FALSE)
-  }
-  angle <- suppressWarnings(as.numeric(axis_text_x$angle))
-  is.finite(angle) && abs(angle) > 0
+merge_inner_scale_diagnostics <- function(diagnostics, plot_scales) {
+  if (is.null(diagnostics) || nrow(diagnostics) == 0) return(diagnostics)
+  match_index <- match(diagnostics$plot_id, plot_scales$plot_id)
+  diagnostics$inner_scale_x <- plot_scales$scale_x[match_index]
+  diagnostics$inner_scale_y <- plot_scales$scale_y[match_index]
+  diagnostics$footprint_validation_status <- plot_scales$footprint_validation_status[match_index]
+  diagnostics$footprint_validation_iterations <- plot_scales$footprint_validation_iterations[match_index]
+  diagnostics
 }
 
 attach_plot_title <- function(plot, base_size = 7) {
@@ -906,11 +677,12 @@ make_candidate_layout_diagnostics <- function(candidate, preferences) {
   do.call(rbind, rows)
 }
 
-make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate) {
+make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate, pages = NULL) {
+  diagnostic_pages <- if (is.null(pages)) best_candidate$pages else pages
   selected_diagnostics <- do.call(
     rbind,
-    lapply(seq_along(best_candidate$pages), function(page_index) {
-      diagnostics <- best_candidate$pages[[page_index]]$diagnostics
+    lapply(seq_along(diagnostic_pages), function(page_index) {
+      diagnostics <- diagnostic_pages[[page_index]]$diagnostics
       diagnostics$page <- page_index
       diagnostics
     })
@@ -928,6 +700,14 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate) 
       selected <- data.frame(
         min_x_label_gap_mm = NA_real_,
         min_y_label_gap_mm = NA_real_,
+        required_width_mm = NA_real_,
+        required_height_mm = NA_real_,
+        width_limiting_constraint = "unavailable",
+        height_limiting_constraint = "unavailable",
+        inner_scale_x = 1,
+        inner_scale_y = 1,
+        footprint_validation_status = "unavailable",
+        footprint_validation_iterations = 0L,
         panel_width_mm = NA_real_,
         panel_height_mm = NA_real_,
         effective_panel_width_mm = NA_real_,
@@ -962,6 +742,14 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate) 
       min_acceptable_height_mm = frontier$min_acceptable_height_mm,
       preferred_width_mm = frontier$preferred_width_mm,
       preferred_height_mm = frontier$preferred_height_mm,
+      required_width_mm = selected$required_width_mm[1],
+      required_height_mm = selected$required_height_mm[1],
+      inner_scale_x = selected$inner_scale_x[1],
+      inner_scale_y = selected$inner_scale_y[1],
+      width_limiting_constraint = selected$width_limiting_constraint[1],
+      height_limiting_constraint = selected$height_limiting_constraint[1],
+      footprint_validation_status = selected$footprint_validation_status[1],
+      footprint_validation_iterations = selected$footprint_validation_iterations[1],
       selected_page = selected$page[1],
       min_x_label_gap_mm_at_selected_size = selected$min_x_label_gap_mm[1],
       min_y_label_gap_mm_at_selected_size = selected$min_y_label_gap_mm[1],
@@ -1002,6 +790,20 @@ make_result_warnings <- function(profiles, best_candidate, plot_diagnostics, pre
 
   selected_warnings <- plot_diagnostics$warning[nzchar(plot_diagnostics$warning)]
   warnings <- unique(c(warnings, selected_warnings))
+
+  footprint_fallbacks <- plot_diagnostics[
+    grepl("^fallback", plot_diagnostics$footprint_validation_status),
+    , drop = FALSE
+  ]
+  if (nrow(footprint_fallbacks) > 0) {
+    warnings <- c(
+      warnings,
+      paste0(
+        footprint_fallbacks$plot_id,
+        " used its full allocated footprint because the smaller measured footprint did not validate."
+      )
+    )
+  }
 
   marginal_x <- plot_diagnostics[
     is.finite(plot_diagnostics$min_x_label_gap_mm_at_selected_size) &
@@ -1056,5 +858,3 @@ make_result_warnings <- function(profiles, best_candidate, plot_diagnostics, pre
 
   unique(warnings[nzchar(warnings)])
 }
-
-

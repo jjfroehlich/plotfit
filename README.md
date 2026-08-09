@@ -122,6 +122,7 @@ Default output:
 
 - `demo_output/layout_feedback.pdf`
 - `demo_output/previous/layout_feedback.pdf`
+- `demo_output/archive/structural-scaling-baseline.pdf`
 - `man/figures/readme-layout-comparison.png`
 
 The unified feedback PDF numbers every plot globally in its title (`p1`, `p2`,
@@ -130,6 +131,11 @@ version is copied to `demo_output/previous/` for side-by-side review. The demo
 uses patchwork so the feedback PDF exercises the same editable output that the
 package API returns by default. Grid rendering remains available through
 `--layout-engine=grid` for diagnostic comparisons.
+
+The permanent archive PDF records the final reviewed output from the earlier
+geom-category scaling implementation. Its matching code, tests, and PDFs are
+preserved by the Git tag `baseline-structural-scaling-2026-08-08`; canonical
+demo runs never overwrite this archive.
 
 Run one scenario:
 
@@ -155,6 +161,6 @@ Run tests:
 & 'C:\Program Files\R\R-4.2.2\bin\Rscript.exe' -e "testthat::test_local('.', reporter = 'summary')"
 ```
 
-## Give Feedback and Contribute
+## Support
 
-- Please get in touch if you have feedback or want to contribute.
+Get in touch if you have feedback or want to contribute.

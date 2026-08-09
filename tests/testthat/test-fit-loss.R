@@ -134,16 +134,22 @@ test_that("axis gap estimation uses neighbouring label positions", {
   expect_gt(crowded_gap$violation_mm, 0)
 })
 
-test_that("point-mark density continuously expands physical panel limits", {
+test_that("generic built-mark density continuously expands only preferred panel limits", {
   preferences <- list(min_panel_width_mm = 20, min_panel_height_mm = 10)
   sparse_profile <- list(
-    geometry = list(n_points_per_panel_in_point_layers = 500)
+    density = list(n_points_per_panel_estimate = 500),
+    geometry = list(n_nonempty_text_labels = 0), panels = list(n_panels = 1),
+    plot = ggplot2::ggplot()
   )
   medium_profile <- list(
-    geometry = list(n_points_per_panel_in_point_layers = 1000)
+    density = list(n_points_per_panel_estimate = 1000),
+    geometry = list(n_nonempty_text_labels = 0), panels = list(n_panels = 1),
+    plot = ggplot2::ggplot()
   )
   dense_profile <- list(
-    geometry = list(n_points_per_panel_in_point_layers = 6000)
+    density = list(n_points_per_panel_estimate = 6000),
+    geometry = list(n_nonempty_text_labels = 0), panels = list(n_panels = 1),
+    plot = ggplot2::ggplot()
   )
 
   sparse <- plotfit:::adjusted_panel_limits_for_density(sparse_profile, preferences)
@@ -151,32 +157,31 @@ test_that("point-mark density continuously expands physical panel limits", {
   dense <- plotfit:::adjusted_panel_limits_for_density(dense_profile, preferences)
 
   expect_equal(sparse$density_factor, 1)
-  expect_equal(medium$density_factor, 2)
-  expect_equal(dense$density_factor, 2.5)
+  expect_equal(medium$density_factor, 1.1)
+  expect_gt(dense$density_factor, medium$density_factor)
+  expect_lte(dense$density_factor, 1.5)
   expect_equal(sparse$hard_density_factor, 1)
-  expect_equal(medium$hard_density_factor, 1.5)
-  expect_equal(dense$hard_density_factor, 1.5)
-  expect_lt(sparse$min_panel_width_mm, medium$min_panel_width_mm)
+  expect_equal(medium$hard_density_factor, 1)
+  expect_equal(dense$hard_density_factor, 1)
+  expect_equal(sparse$min_panel_width_mm, medium$min_panel_width_mm)
   expect_equal(medium$min_panel_width_mm, dense$min_panel_width_mm)
   expect_lt(medium$preferred_panel_width_mm, dense$preferred_panel_width_mm)
 })
 
-test_that("box and violin geometry receive a larger soft physical target", {
+test_that("physical targets do not branch on geom class", {
   preferences <- list(min_panel_width_mm = 20, min_panel_height_mm = 10)
-  profile <- list(
-    geometry = list(
-      n_points_per_panel_in_point_layers = 32,
-      geom_classes = c("GeomBoxplot", "GeomPoint")
-    )
+  profile_a <- list(
+    density = list(n_points_per_panel_estimate = 1000),
+    geometry = list(n_nonempty_text_labels = 0, geom_classes = "GeomBoxplot"),
+    panels = list(n_panels = 1), plot = ggplot2::ggplot()
   )
+  profile_b <- profile_a
+  profile_b$geometry$geom_classes <- "CompletelyUnknownGeom"
 
-  limits <- plotfit:::adjusted_panel_limits_for_density(profile, preferences)
+  limits_a <- plotfit:::adjusted_panel_limits_for_density(profile_a, preferences)
+  limits_b <- plotfit:::adjusted_panel_limits_for_density(profile_b, preferences)
 
-  expect_equal(limits$density_factor, 1)
-  expect_equal(limits$distribution_factor, 3)
-  expect_equal(limits$hard_density_factor, 1)
-  expect_equal(limits$preferred_panel_width_mm, 51)
-  expect_equal(limits$preferred_panel_height_mm, 25.5)
+  expect_equal(limits_a, limits_b)
 })
 
 test_that("multi-row horizontal legends create a panel-balance target", {

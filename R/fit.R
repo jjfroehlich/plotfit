@@ -71,6 +71,11 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
   effective_panel <- estimate_effective_panel_size(profile, panel_width_mm, panel_height_mm)
 
   density_limits <- adjusted_panel_limits_for_density(profile, preferences)
+  footprint <- estimate_required_plot_footprint(
+    profile = profile,
+    fixed_size = fixed_size,
+    preferences = preferences
+  )
   axis_gaps <- estimate_axis_label_gaps(
     profile,
     effective_panel$effective_panel_width_mm,
@@ -80,8 +85,8 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
   panel_loss <- estimate_panel_minimum_loss(
     effective_panel$effective_panel_width_mm,
     effective_panel$effective_panel_height_mm,
-    density_limits$min_panel_width_mm,
-    density_limits$min_panel_height_mm,
+    preferences$min_panel_width_mm,
+    preferences$min_panel_height_mm,
     preferences
   )
   facet_loss <- estimate_facet_loss(
@@ -110,8 +115,8 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     preferences
   )
 
-  preferred_width_mm <- fixed_size$left_mm + fixed_size$right_mm + density_limits$preferred_width_multiplier * density_limits$min_panel_width_mm
-  preferred_height_mm <- fixed_size$top_mm + fixed_size$bottom_mm + density_limits$preferred_height_multiplier * density_limits$min_panel_height_mm
+  preferred_width_mm <- footprint$preferred_width_mm
+  preferred_height_mm <- footprint$preferred_height_mm
   preferred_area_mm2 <- preferred_width_mm * preferred_height_mm
   allocated_area_mm2 <- width_mm * height_mm
   page_area_mm2 <- profile$page$width_mm * profile$page$height_mm
@@ -119,9 +124,23 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
   oversize_loss <- preferences$soft_oversize_penalty *
     max(0, allocated_area_mm2 - preferred_area_mm2)^2 / max(page_area_mm2, 1)
 
+  footprint_width_violation_mm <- if (isTRUE(footprint$measurement_reliable)) {
+    max(0, footprint$required_width_mm - width_mm)
+  } else {
+    0
+  }
+  footprint_height_violation_mm <- if (isTRUE(footprint$measurement_reliable)) {
+    max(0, footprint$required_height_mm - height_mm)
+  } else {
+    0
+  }
+  footprint_hard_loss <- preferences$hard_panel_penalty *
+    (footprint_width_violation_mm^2 + footprint_height_violation_mm^2)
+
   total_loss <- axis_gaps$label_gap_loss +
     panel_loss$panel_minimum_loss +
     facet_loss$facet_loss +
+    footprint_hard_loss +
     legend_loss$legend_loss +
     data_density_loss$data_density_loss +
     aspect_loss$aspect_ratio_loss +
@@ -135,17 +154,26 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     panel_loss$panel_height_violation_mm,
     facet_loss$facet_panel_width_violation_mm,
     facet_loss$facet_panel_height_violation_mm,
+    footprint_width_violation_mm,
+    footprint_height_violation_mm,
     na.rm = TRUE
   )
   hard_loss <- axis_gaps$hard_loss +
     panel_loss$hard_loss +
-    facet_loss$hard_loss
+    facet_loss$hard_loss +
+    footprint_hard_loss
 
   list(
     width_mm = width_mm,
     height_mm = height_mm,
     preferred_width_mm = preferred_width_mm,
     preferred_height_mm = preferred_height_mm,
+    required_width_mm = footprint$required_width_mm,
+    required_height_mm = footprint$required_height_mm,
+    width_limiting_constraint = footprint$width_limiting_constraint,
+    height_limiting_constraint = footprint$height_limiting_constraint,
+    footprint_measurement_reliable = footprint$measurement_reliable,
+    target_panel_aspect = scalar_or_default(profile$geometry$target_panel_aspect, NA_real_),
     fixed_width_mm = fixed_size$left_mm + fixed_size$right_mm,
     fixed_height_mm = fixed_size$top_mm + fixed_size$bottom_mm,
     panel_width_mm = panel_width_mm,
@@ -164,6 +192,14 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     legend_area_mm2 = profile$geometry$legend_area_mm2,
     min_x_label_gap_mm = axis_gaps$min_x_label_gap_mm,
     min_y_label_gap_mm = axis_gaps$min_y_label_gap_mm,
+    x_label_violation_mm = axis_gaps$x_label_violation_mm,
+    y_label_violation_mm = axis_gaps$y_label_violation_mm,
+    panel_width_violation_mm = panel_loss$panel_width_violation_mm,
+    panel_height_violation_mm = panel_loss$panel_height_violation_mm,
+    facet_panel_width_violation_mm = facet_loss$facet_panel_width_violation_mm,
+    facet_panel_height_violation_mm = facet_loss$facet_panel_height_violation_mm,
+    footprint_width_violation_mm = footprint_width_violation_mm,
+    footprint_height_violation_mm = footprint_height_violation_mm,
     label_gap_loss = axis_gaps$label_gap_loss,
     panel_minimum_loss = panel_loss$panel_minimum_loss,
     facet_loss = facet_loss$facet_loss,
@@ -178,6 +214,175 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     total_loss = total_loss,
     warnings = c(axis_gaps$warnings, facet_loss$warnings, legend_loss$warnings, data_density_loss$warnings, aspect_loss$warnings)
   )
+}
+
+estimate_required_plot_footprint <- function(profile, fixed_size, preferences) {
+  fixed_width_mm <- scalar_or_default(fixed_size$left_mm, 0) +
+    scalar_or_default(fixed_size$right_mm, 0)
+  fixed_height_mm <- scalar_or_default(fixed_size$top_mm, 0) +
+    scalar_or_default(fixed_size$bottom_mm, 0)
+  panel_cols <- max(1, scalar_or_default(profile$panels$n_panel_cols, 1))
+  panel_rows <- max(1, scalar_or_default(profile$panels$n_panel_rows, 1))
+
+  axis_width <- required_axis_panel_span_mm(profile, "x", preferences$min_label_gap_mm)
+  axis_height <- required_axis_panel_span_mm(profile, "y", preferences$min_label_gap_mm)
+  min_panel_width <- preferences$min_panel_width_mm * panel_cols
+  min_panel_height <- preferences$min_panel_height_mm * panel_rows
+
+  content_limits <- adjusted_panel_limits_for_density(profile, preferences)
+  panel_width_candidates <- c(
+    panel_minimum = min_panel_width,
+    axis_labels = axis_width * panel_cols
+  )
+  panel_height_candidates <- c(
+    panel_minimum = min_panel_height,
+    axis_labels = axis_height * panel_rows
+  )
+  panel_width_candidates[!is.finite(panel_width_candidates)] <- 0
+  panel_height_candidates[!is.finite(panel_height_candidates)] <- 0
+
+  base_required_panel_width <- max(panel_width_candidates)
+  base_required_panel_height <- max(panel_height_candidates)
+  panel_width_constraint <- names(panel_width_candidates)[which.max(panel_width_candidates)]
+  panel_height_constraint <- names(panel_height_candidates)[which.max(panel_height_candidates)]
+  required_panel_width <- base_required_panel_width
+  required_panel_height <- base_required_panel_height
+  target_aspect <- scalar_or_default(profile$geometry$target_panel_aspect, NA_real_)
+  aspect_adjusted <- FALSE
+  if (is.finite(target_aspect) && target_aspect > 0 &&
+      required_panel_width > 0 && required_panel_height > 0) {
+    actual_aspect <- required_panel_height / required_panel_width
+    if (actual_aspect < target_aspect) {
+      required_panel_height <- required_panel_width * target_aspect
+      aspect_adjusted <- TRUE
+    } else if (actual_aspect > target_aspect) {
+      required_panel_width <- required_panel_height / target_aspect
+      aspect_adjusted <- TRUE
+    }
+  }
+
+  legends <- profile$component_sizes[profile$component_sizes$type == "legend", , drop = FALSE]
+  legend_width_mm <- if (nrow(legends) > 0) max(legends$width_mm, na.rm = TRUE) else 0
+  legend_height_mm <- if (nrow(legends) > 0) max(legends$height_mm, na.rm = TRUE) else 0
+  wide_text <- profile$text_grobs[
+    profile$text_grobs$component_type %in% c("title", "xlab", "strip"),
+    , drop = FALSE
+  ]
+  tall_text <- profile$text_grobs[
+    profile$text_grobs$component_type %in% c("title", "ylab", "strip"),
+    , drop = FALSE
+  ]
+  text_width_mm <- if (nrow(wide_text) > 0) max(wide_text$width_mm, na.rm = TRUE) else 0
+  text_height_mm <- if (nrow(tall_text) > 0) max(tall_text$height_mm, na.rm = TRUE) else 0
+  component_width_mm <- max(legend_width_mm + if (legend_width_mm > 0) 8 else 0, text_width_mm + 2, na.rm = TRUE)
+  component_height_mm <- max(legend_height_mm + if (legend_height_mm > 0) 4 else 0, text_height_mm + 2, na.rm = TRUE)
+  if (!is.finite(component_width_mm)) component_width_mm <- 0
+  if (!is.finite(component_height_mm)) component_height_mm <- 0
+
+  width_candidates <- c(
+    stats::setNames(fixed_width_mm + base_required_panel_width, panel_width_constraint),
+    outer_components = component_width_mm
+  )
+  height_candidates <- c(
+    stats::setNames(fixed_height_mm + base_required_panel_height, panel_height_constraint),
+    outer_components = component_height_mm
+  )
+  if (aspect_adjusted) {
+    if (required_panel_width > base_required_panel_width) {
+      width_candidates <- c(width_candidates, aspect_ratio = fixed_width_mm + required_panel_width)
+    }
+    if (required_panel_height > base_required_panel_height) {
+      height_candidates <- c(height_candidates, aspect_ratio = fixed_height_mm + required_panel_height)
+    }
+  }
+
+  required_width_mm <- max(width_candidates)
+  required_height_mm <- max(height_candidates)
+  preferred_panel_width <- max(
+    required_panel_width,
+    content_limits$preferred_panel_width_mm * panel_cols
+  )
+  preferred_panel_height <- max(
+    required_panel_height,
+    content_limits$preferred_panel_height_mm * panel_rows
+  )
+  if (is.finite(target_aspect) && target_aspect > 0) {
+    preferred_aspect <- preferred_panel_height / preferred_panel_width
+    if (preferred_aspect < target_aspect) {
+      preferred_panel_height <- preferred_panel_width * target_aspect
+    } else if (preferred_aspect > target_aspect) {
+      preferred_panel_width <- preferred_panel_height / target_aspect
+    }
+  }
+  preferred_width_mm <- max(required_width_mm, fixed_width_mm + preferred_panel_width)
+  preferred_height_mm <- max(required_height_mm, fixed_height_mm + preferred_panel_height)
+  measurement_reliable <- is.finite(required_width_mm) && required_width_mm > 0 &&
+    is.finite(required_height_mm) && required_height_mm > 0 &&
+    is.finite(fixed_width_mm) && is.finite(fixed_height_mm)
+
+  list(
+    required_width_mm = required_width_mm,
+    required_height_mm = required_height_mm,
+    preferred_width_mm = preferred_width_mm,
+    preferred_height_mm = preferred_height_mm,
+    width_limiting_constraint = names(width_candidates)[which.max(width_candidates)],
+    height_limiting_constraint = names(height_candidates)[which.max(height_candidates)],
+    measurement_reliable = measurement_reliable
+  )
+}
+
+required_axis_panel_span_mm <- function(profile, axis = c("x", "y"), min_gap_mm = 0) {
+  axis <- match.arg(axis)
+  component_types <- if (axis == "x") c("axis_b", "axis_t") else c("axis_l", "axis_r")
+  labels <- profile$text_grobs[profile$text_grobs$component_type %in% component_types, , drop = FALSE]
+  if (nrow(labels) <= 1) return(0)
+
+  group_key <- interaction(labels$component_type, labels$component_name, drop = TRUE, lex.order = TRUE)
+  groups <- split(labels, group_key)
+  requirements <- vapply(groups, function(group) {
+    if (nrow(group) <= 1) return(0)
+    positions <- profile$axis_positions[[axis]]$positions
+    if (length(positions) != nrow(group) || any(!is.finite(positions))) {
+      positions <- seq(0, 1, length.out = nrow(group))
+    }
+    order_index <- order(positions)
+    positions <- positions[order_index]
+    group <- group[order_index, , drop = FALSE]
+    position_gaps <- diff(positions)
+    valid <- is.finite(position_gaps) & position_gaps > 0
+    if (!any(valid)) return(Inf)
+    adjacent_extent <- adjacent_axis_text_requirements(group, axis, min_gap_mm)
+    max(adjacent_extent[valid] / position_gaps[valid], na.rm = TRUE)
+  }, numeric(1))
+  if (any(is.infinite(requirements))) return(Inf)
+  max(requirements, 0, na.rm = TRUE)
+}
+
+adjacent_axis_text_requirements <- function(axis_labels, axis = c("x", "y"), gap_mm = 0) {
+  axis <- match.arg(axis)
+  if (nrow(axis_labels) <= 1) return(numeric())
+  projected_sizes <- vapply(seq_len(nrow(axis_labels)), function(index) {
+    projected <- projected_text_extent(
+      axis_labels$width_mm[index], axis_labels$height_mm[index], axis_labels$rotation[index]
+    )
+    if (axis == "x") projected$width_mm else projected$height_mm
+  }, numeric(1))
+  bounding_requirement <- 0.5 * utils::head(projected_sizes, -1) +
+    0.5 * utils::tail(projected_sizes, -1) + gap_mm
+
+  rotations_a <- utils::head(axis_labels$rotation, -1)
+  rotations_b <- utils::tail(axis_labels$rotation, -1)
+  rotation_difference <- abs(((rotations_a - rotations_b + 180) %% 360) - 180)
+  theta <- 0.5 * (rotations_a + rotations_b) * pi / 180
+  normal_component <- if (axis == "x") abs(sin(theta)) else abs(cos(theta))
+  intrinsic_thickness <- 0.5 * utils::head(axis_labels$height_mm, -1) +
+    0.5 * utils::tail(axis_labels$height_mm, -1)
+  parallel_requirement <- rep(Inf, length(bounding_requirement))
+  use_parallel_geometry <- rotation_difference < 1e-6 & normal_component > 1e-6
+  parallel_requirement[use_parallel_geometry] <-
+    intrinsic_thickness[use_parallel_geometry] / normal_component[use_parallel_geometry] + gap_mm
+
+  pmin(bounding_requirement, parallel_requirement)
 }
 
 estimate_effective_panel_size <- function(profile, panel_width_mm, panel_height_mm) {
@@ -267,21 +472,6 @@ estimate_one_axis_gap <- function(axis_labels, axis_positions = NULL, available_
     return(list(min_gap_mm = Inf, violation_mm = 0, loss = 0, hard_loss = 0, warnings = character()))
   }
 
-  projected_sizes <- numeric(nrow(axis_labels))
-  for (label_index in seq_len(nrow(axis_labels))) {
-    projected <- projected_text_extent(
-      width_mm = axis_labels$width_mm[label_index],
-      height_mm = axis_labels$height_mm[label_index],
-      rotation = axis_labels$rotation[label_index]
-    )
-
-    if (axis == "x") {
-      projected_sizes[label_index] <- projected$width_mm
-    } else {
-      projected_sizes[label_index] <- projected$height_mm
-    }
-  }
-
   label_count <- nrow(axis_labels)
   position_values <- NULL
   fallback <- TRUE
@@ -297,11 +487,10 @@ estimate_one_axis_gap <- function(axis_labels, axis_positions = NULL, available_
 
   order_index <- order(position_values)
   position_values <- position_values[order_index]
-  projected_sizes <- projected_sizes[order_index]
+  axis_labels <- axis_labels[order_index, , drop = FALSE]
 
   centre_distances_mm <- diff(position_values) * available_mm
-  adjacent_required_mm <- 0.5 * utils::head(projected_sizes, -1) +
-    0.5 * utils::tail(projected_sizes, -1)
+  adjacent_required_mm <- adjacent_axis_text_requirements(axis_labels, axis, gap_mm = 0)
   gap_values_mm <- centre_distances_mm - adjacent_required_mm
   min_gap_mm <- min(gap_values_mm, na.rm = TRUE)
 
@@ -459,51 +648,46 @@ estimate_legend_loss <- function(
 }
 
 adjusted_panel_limits_for_density <- function(profile, preferences) {
-  n_points_per_panel <- profile$geometry$n_points_per_panel_in_point_layers
-  geom_classes <- profile$geometry$geom_classes
+  n_marks_per_panel <- scalar_or_default(profile$density$n_points_per_panel_estimate, NA_real_)
+  n_annotations <- scalar_or_default(profile$geometry$n_nonempty_text_labels, 0)
+  n_panels <- max(1, scalar_or_default(profile$panels$n_panels, 1))
+  annotations_per_panel <- n_annotations / n_panels
 
   density_factor <- 1
-  if (is.finite(n_points_per_panel) && n_points_per_panel > 500) {
-    density_factor <- min(2.5, 1 + log2(n_points_per_panel / 500))
+  if (is.finite(n_marks_per_panel) && n_marks_per_panel > 500) {
+    density_factor <- min(1.5, 1 + 0.1 * log2(n_marks_per_panel / 500))
   }
-
-  has_violin_geom <- any(grepl("GeomViolin", geom_classes))
-  has_boxplot_geom <- any(grepl("GeomBoxplot", geom_classes))
-  axis_text_x <- profile$plot$theme$axis.text.x
-  axis_angle <- if (!is.null(axis_text_x) && !is.null(axis_text_x$angle)) {
-    suppressWarnings(as.numeric(axis_text_x$angle))
-  } else {
-    0
+  annotation_factor <- 1
+  if (is.finite(annotations_per_panel) && annotations_per_panel > 0) {
+    annotation_factor <- min(1.25, 1 + sqrt(annotations_per_panel) / 50)
   }
-  has_rotated_x_labels <- is.finite(axis_angle) && abs(axis_angle) > 0
-  legend_position <- profile$plot$theme$legend.position
-  has_horizontal_legend <- is.character(legend_position) &&
-    length(legend_position) > 0 && legend_position[1] %in% c("bottom", "top")
-  enlarge_distribution <- has_violin_geom ||
-    (has_boxplot_geom && (!has_rotated_x_labels || has_horizontal_legend))
-  distribution_factor <- if (enlarge_distribution) 3 else 1
-  preferred_size_factor <- max(density_factor, distribution_factor)
+  preferred_size_factor <- max(density_factor, annotation_factor)
 
-  hard_density_factor <- min(1.5, density_factor)
-  preferred_panel_width_mm <- 0.85 * preferences$min_panel_width_mm * preferred_size_factor
-  preferred_panel_height_mm <- 0.85 * preferences$min_panel_height_mm * preferred_size_factor
+  target_panel_width_mm <- scalar_or_default(
+    preferences$target_panel_width_mm,
+    2 * preferences$min_panel_width_mm
+  )
+  target_panel_height_mm <- scalar_or_default(
+    preferences$target_panel_height_mm,
+    2 * preferences$min_panel_height_mm
+  )
+  preferred_panel_width_mm <- target_panel_width_mm * preferred_size_factor
+  preferred_panel_height_mm <- target_panel_height_mm * preferred_size_factor
   legend_panel_targets <- horizontal_legend_panel_targets(profile)
   preferred_panel_width_mm <- max(preferred_panel_width_mm, legend_panel_targets$width_mm)
   preferred_panel_height_mm <- max(preferred_panel_height_mm, legend_panel_targets$height_mm)
 
   list(
-    min_panel_width_mm = preferences$min_panel_width_mm * hard_density_factor,
-    min_panel_height_mm = preferences$min_panel_height_mm * hard_density_factor,
+    min_panel_width_mm = preferences$min_panel_width_mm,
+    min_panel_height_mm = preferences$min_panel_height_mm,
     density_factor = density_factor,
-    distribution_factor = distribution_factor,
+    annotation_factor = annotation_factor,
     preferred_size_factor = preferred_size_factor,
-    hard_density_factor = hard_density_factor,
+    hard_density_factor = 1,
     preferred_panel_width_mm = preferred_panel_width_mm,
     preferred_panel_height_mm = preferred_panel_height_mm,
-    preferred_width_multiplier = preferred_panel_width_mm /
-      (preferences$min_panel_width_mm * hard_density_factor),
-    preferred_height_multiplier = preferred_panel_height_mm /
-      (preferences$min_panel_height_mm * hard_density_factor)
+    preferred_width_multiplier = preferred_panel_width_mm / preferences$min_panel_width_mm,
+    preferred_height_multiplier = preferred_panel_height_mm / preferences$min_panel_height_mm
   )
 }
 
@@ -517,8 +701,7 @@ estimate_data_density_loss <- function(profile, panel_width_mm, panel_height_mm,
   width_violation_mm <- max(0, limits$preferred_panel_width_mm - panel_width_mm)
   height_violation_mm <- max(0, limits$preferred_panel_height_mm - panel_height_mm)
 
-  density_penalty <- if (limits$distribution_factor > limits$density_factor) 1 else 50
-  data_density_loss <- density_penalty * (width_violation_mm^2 + height_violation_mm^2)
+  data_density_loss <- 25 * (width_violation_mm^2 + height_violation_mm^2)
 
   warnings <- paste0(
     "Content-density heuristic inflated preferred panel size by ",
