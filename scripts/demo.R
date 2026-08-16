@@ -850,22 +850,7 @@ write_readme_comparison_image <- function(
   normalizePath(output_file, winslash = "/", mustWork = FALSE)
 }
 
-normalize_requested_scenarios <- function(scenarios) {
-  available <- names(demo_scenarios())
-  if (is.null(scenarios) || length(scenarios) == 0 || identical(scenarios, "all")) {
-    return(available)
-  }
-  scenarios <- unlist(strsplit(paste(scenarios, collapse = ","), ",", fixed = TRUE))
-  scenarios <- trimws(scenarios)
-  unknown <- setdiff(scenarios, available)
-  if (length(unknown) > 0) {
-    stop("Unknown demo scenario(s): ", paste(unknown, collapse = ", "), call. = FALSE)
-  }
-  scenarios
-}
-
 run_demo <- function(
-    scenarios = "all",
     project_dir = canonical_project_dir,
     output_dir = file.path(project_dir, "demo_output"),
     layout_engine = "patchwork",
@@ -880,7 +865,7 @@ run_demo <- function(
   set_demo_theme(text_size)
 
   scenario_specs <- demo_scenarios()
-  scenario_names <- normalize_requested_scenarios(scenarios)
+  scenario_names <- names(scenario_specs)
   built_plot_sets <- lapply(scenario_specs, function(spec) spec$builder())
   scenario_start_numbers <- feedback_scenario_start_numbers(built_plot_sets)
   rows <- vector("list", length(scenario_names))
@@ -946,18 +931,12 @@ run_demo <- function(
     )
   }
 
-  all_scenarios_selected <- identical(scenario_names, names(scenario_specs))
   canonical_output_dir <- file.path(project_dir, "demo_output")
-  canonical_run <- all_scenarios_selected && same_normalized_path(output_dir, canonical_output_dir)
-  pdf_filename <- if (all_scenarios_selected) {
-    "layout_feedback.pdf"
-  } else {
-    paste0("layout_feedback_", paste(scenario_names, collapse = "-"), ".pdf")
-  }
+  canonical_run <- same_normalized_path(output_dir, canonical_output_dir)
   feedback_pdf <- write_feedback_pdf(
     layout_results = results,
     output_dir = output_dir,
-    filename = pdf_filename,
+    filename = "layout_feedback.pdf",
     page_width_in = page_width_in,
     page_height_in = page_height_in,
     text_size = text_size,
@@ -988,27 +967,23 @@ run_demo <- function(
 }
 
 parse_demo_args <- function(args = commandArgs(trailingOnly = TRUE)) {
-  scenario <- "all"
   output_dir <- NULL
   layout_engine <- "patchwork"
   diagnostics <- FALSE
 
   for (arg in args) {
-    if (grepl("^--scenario=", arg)) {
-      scenario <- sub("^--scenario=", "", arg)
-    } else if (grepl("^--output-dir=", arg)) {
+    if (grepl("^--output-dir=", arg)) {
       output_dir <- sub("^--output-dir=", "", arg)
     } else if (grepl("^--layout-engine=", arg)) {
       layout_engine <- sub("^--layout-engine=", "", arg)
     } else if (identical(arg, "--diagnostics")) {
       diagnostics <- TRUE
-    } else if (arg %in% c("all", names(demo_scenarios()))) {
-      scenario <- arg
+    } else {
+      stop("Unsupported demo option: ", arg, call. = FALSE)
     }
   }
 
   list(
-    scenario = scenario,
     output_dir = output_dir,
     layout_engine = layout_engine,
     diagnostics = diagnostics
@@ -1032,7 +1007,6 @@ if (is_direct_script_execution()) {
   }
 
   run_demo(
-    scenarios = parsed_args$scenario,
     project_dir = canonical_project_dir,
     output_dir = output_dir,
     layout_engine = parsed_args$layout_engine,

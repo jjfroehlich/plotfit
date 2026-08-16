@@ -2,7 +2,7 @@
 
 Automatic plot dimension optimization for PDF exports of many ggplots. 
 
-`plotfit` analyzes ggplot objects on a PDF device, and returns a suggested layout for the 'patchwork' package. The aim is, that individual plots will have optimal dimensions and sizing. From here one can then manually assemble them in a vector graphic editor into publication figures. The overall arrangement of plots and the spacing between them is therefore not optimized.
+`plotfit` analyzes ggplot objects on a PDF device, to return a suggested layout for the 'patchwork' package, 'patchwork::plot_layout()'. The goal is for individual plots to have optimal dimensions and sizing. The space between plots is not optimized. One can then manually assemble the plots into publication figures in a vector graphics editor like Illustrator or Inkscape.
 
 ![Before and after layout comparison](man/figures/readme-layout-comparison.png)
 
@@ -11,8 +11,8 @@ Automatic plot dimension optimization for PDF exports of many ggplots.
 - Accepts a list of `ggplot2` plots.
 - Infers plot footprints automatically from axes, labels, legends, facets, and aspect constraints.
 - Chooses one or more pages.
-- Searches plot arrangements and row and column sizes for sensible physical plot dimensions.
-- Returns an editable `patchwork` layout and generated R code.
+- Searches plot arrangements, row and column sizes for sensible physical plot dimensions.
+- Returns an editable `patchwork` layout and R code.
 
 ## Installation
 
@@ -32,7 +32,7 @@ Optimize and inspect the suggested patchwork layout:
 
 ```r
 layout_result <- suggest_patchwork_layout(
-  plots = list(plot_a = p1, plot_b = p2, plot_c = p3),
+  plots = list(p1, p2, p3, p4, p5, p6),
   page_width_in = 8.27,
   page_height_in = 11.69
 )
@@ -42,49 +42,9 @@ layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
-## Faster and Constrained Searches
-
-Use the fast preset for interactive iteration. Explicit limits still override
-the preset defaults:
-
-```r
-quick_result <- suggest_patchwork_layout(plots, search_mode = "fast")
-quick_result$performance_diagnostics$stages
-quick_result$performance_diagnostics$candidates
-quick_result$performance_diagnostics$fit_cache
-```
-
-By default, `plotfit` decides which plots share a page. Use `page_groups` when
-the report's narrative requires a particular page assignment. Each element of
-the list defines one page, using the names from the `plots` list:
-
-```r
-plots <- list(
-  overview = p1,
-  trend = p2,
-  full_page_map = p3,
-  details = p4,
-  appendix = p5
-)
-
-report_result <- suggest_patchwork_layout(
-  plots,
-  page_groups = list(
-    c("overview", "trend"),
-    "full_page_map",
-    c("details", "appendix")
-  )
-)
-```
-
-This requests three pages: `overview` with `trend`, `full_page_map` by itself,
-and `details` with `appendix`. Every plot name must appear exactly once.
-`page_groups` controls only which plots share a page; `plotfit` still determines
-their arrangement and physical sizes automatically.
-
 ## Patchwork Output
 
-`layout_engine = "patchwork"` is the default because it returns an optimized
+`layout_engine = "patchwork"` is the default output. It returns an optimized
 layout that remains easy to inspect, copy, paste, and adjust in R.
 
 ```r
@@ -97,10 +57,58 @@ layout_result$pages[[1]]$patchwork
 cat(layout_result$pages[[1]]$patchwork_code)
 ```
 
+## Constrained Groups
+By default, `plotfit` decides which plots share a page. Use `page_groups` when
+the report's narrative requires a particular page assignment. Each element of
+the list defines one page, using the names from the `plots` list:
+
+```r
+plots <- list(
+  p1 = p1,
+  p2 = p2,
+  p3 = p3,
+  p4 = p4,
+  p5 = p5,
+  p6 = p6,
+  p7 = p7,
+  p8 = p8, 
+  p9 = p9, 
+  p10 = p10
+)
+
+report_result <- suggest_patchwork_layout(
+  plots,
+  page_groups = list(
+    group_1 = c("p1", "p2", "p3", "p4", "p5", "p6"),
+    group_2 = "p7",
+    group_3 = c("p8", "p9", "p10")
+  )
+)
+```
+
+This requests three pages. The group names (`group_1`, `group_2`, and
+`group_3`) are illustrative only; each group's values are the ggplot object
+names from `plots`. Every plot name must appear exactly once. `page_groups`
+controls only which plots share a page; `plotfit` still determines their
+arrangement and physical sizes automatically.
+
+## Faster Search 
+
+Use the fast preset for interactive iteration. Explicit limits will still override
+the preset defaults:
+
+```r
+quick_result <- suggest_patchwork_layout(plots, search_mode = "fast")
+quick_result$performance_diagnostics$stages
+quick_result$performance_diagnostics$candidates
+quick_result$performance_diagnostics$fit_cache
+```
+
 ## Grid Output
 
+Alternative diagnostic option:
 `layout_engine = "grid"` renders the optimizer's physical row, column, and plot
-footprint measurements more exactly. It is available for diagnostic comparisons
+footprint measurements more exactly. It is mainly available for diagnostic comparisons
 when you want to distinguish sizing decisions from patchwork rendering behavior.
 
 ```r
@@ -126,26 +134,8 @@ Default output:
 - `man/figures/readme-layout-comparison.png`
 
 The unified feedback PDF numbers every plot globally in its title (`p1`, `p2`,
-and so on). Before a canonical all-scenarios run replaces the PDF, the existing
-version is copied to `demo_output/previous/` for side-by-side review. The demo
-uses patchwork so the feedback PDF exercises the same editable output that the
-package API returns by default. Grid rendering remains available through
-`--layout-engine=grid` for diagnostic comparisons.
-
-The permanent archive PDF records the final reviewed output from the earlier
-geom-category scaling implementation. Its matching code, tests, and PDFs are
-preserved by the Git tag `baseline-structural-scaling-2026-08-08`; canonical
-demo runs never overwrite this archive.
-
-Run one scenario:
-
-```powershell
-& 'C:\Program Files\R\R-4.2.2\bin\Rscript.exe' scripts\demo.R --scenario=generalization
-```
-
-This writes `demo_output/layout_feedback_generalization.pdf`. Focused scenario
-PDFs keep the same global plot identifiers as the unified PDF (here `p9` to
-`p16`) and do not rotate the canonical current/previous comparison pair.
+and so on). The previously existing PDF version is copied to
+`demo_output/previous/` for side-by-side review.
 
 Write optional diagnostics, warnings, and generated patchwork code:
 

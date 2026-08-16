@@ -34,6 +34,7 @@ test_that("unified demo script exposes the expected automatic scenarios", {
   expect_match(runner_source, "layout_feedback.pdf", fixed = TRUE)
   expect_match(runner_source, "archive_previous = canonical_run", fixed = TRUE)
   expect_match(runner_source, "--diagnostics", fixed = TRUE)
+  expect_false(grepl("--scenario=", runner_source, fixed = TRUE))
   expect_match(runner_source, "readme-layout-comparison.png", fixed = TRUE)
 })
 
@@ -60,6 +61,10 @@ test_that("feedback titles are globally numbered and prior PDFs are preserved", 
   expect_equal(names(labelled), c("p9", "p10"))
   expect_equal(labelled[[1]]$labels$title, "(p9) First")
   expect_equal(labelled[[2]]$labels$title, "(p10) Second")
+  expect_error(
+    demo_environment$parse_demo_args("--scenario=generalization"),
+    "Unsupported demo option"
+  )
 
   output_dir <- tempfile("plotfit-feedback-")
   dir.create(output_dir, recursive = TRUE)
