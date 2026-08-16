@@ -86,12 +86,6 @@ report_result <- suggest_patchwork_layout(
 )
 ```
 
-This requests three pages. The group names (`group_1`, `group_2`, and
-`group_3`) are illustrative only; each group's values are the ggplot object
-names from `plots`. Every plot name must appear exactly once. `page_groups`
-controls only which plots share a page; `plotfit` still determines their
-arrangement and physical sizes automatically.
-
 ## Faster Search 
 
 Use the fast preset for interactive iteration. Explicit limits will still override
@@ -106,7 +100,6 @@ quick_result$performance_diagnostics$fit_cache
 
 ## Grid Output
 
-Alternative diagnostic option:
 `layout_engine = "grid"` renders the optimizer's physical row, column, and plot
 footprint measurements more exactly. It is mainly available for diagnostic comparisons
 when you want to distinguish sizing decisions from patchwork rendering behavior.
