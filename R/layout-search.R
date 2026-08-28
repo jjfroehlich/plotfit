@@ -253,6 +253,9 @@ generate_row_band_layouts <- function(plot_ids, frontiers, max_grid_cols, max_gr
   }
 
   layouts <- list()
+  if (!keep_plot_order) {
+    plot_ids <- intersect(rank_plots_by_min_area(frontiers), plot_ids)
+  }
   symbols <- patchwork_symbols(plot_count)
 
   for (row_count in 2:min(max_grid_rows, plot_count)) {
@@ -636,6 +639,7 @@ score_layout_page <- function(layout_page, widths, heights, fit_functions, page_
       y_label_violation_mm = scalar_or_default(fit$y_label_violation_mm, 0),
       panel_width_violation_mm = scalar_or_default(fit$panel_width_violation_mm, 0),
       panel_height_violation_mm = scalar_or_default(fit$panel_height_violation_mm, 0),
+      panel_area_violation_mm = scalar_or_default(fit$panel_area_violation_mm, 0),
       facet_panel_width_violation_mm = scalar_or_default(fit$facet_panel_width_violation_mm, 0),
       facet_panel_height_violation_mm = scalar_or_default(fit$facet_panel_height_violation_mm, 0),
       label_gap_loss = fit$label_gap_loss,
@@ -777,7 +781,7 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
       frontiers = frontiers,
       allow_multipage = preferences$allow_multipage,
       max_pages = preferences$max_pages,
-      keep_plot_order = TRUE
+      keep_plot_order = scalar_or_default(preferences$keep_plot_order, TRUE)
     )
   }
 
@@ -799,7 +803,7 @@ select_best_solution <- function(plot_ids, frontiers, fit_functions, page_spec, 
       frontiers = frontiers,
       max_grid_cols = preferences$max_grid_cols,
       max_grid_rows = preferences$max_grid_rows,
-      keep_plot_order = TRUE,
+      keep_plot_order = scalar_or_default(preferences$keep_plot_order, TRUE),
       search_budget = preferences$search_budget
     )
   })

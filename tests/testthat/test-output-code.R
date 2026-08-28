@@ -167,6 +167,27 @@ test_that("bounded validation enlarges both dimensions for aspect-constrained pa
   expect_gt(validated$scale_y, 0.4)
 })
 
+test_that("bounded validation enlarges both dimensions for panel-area violations", {
+  fit_function <- function(width_mm, height_mm) {
+    area_violation <- max(0, 2500 - width_mm * height_mm)
+    list(
+      hard_violation_mm = sqrt(area_violation),
+      inner_footprint_width_violation_mm = 0,
+      inner_footprint_height_violation_mm = 0,
+      panel_area_violation_mm = sqrt(area_violation)
+    )
+  }
+  validated <- plotfit:::validate_inner_plot_scale(
+    list(scale_x = 0.4, scale_y = 0.4),
+    data.frame(allocated_width_mm = 100, allocated_height_mm = 100),
+    fit_function, max_iterations = 4
+  )
+
+  expect_equal(validated$status, "validated")
+  expect_gt(validated$scale_x, 0.4)
+  expect_gt(validated$scale_y, 0.4)
+})
+
 test_that("failed bounded validation falls back to the full footprint", {
   failing_fit <- function(width_mm, height_mm) list(
     hard_violation_mm = 1, x_label_violation_mm = 1, y_label_violation_mm = 1,
@@ -211,5 +232,37 @@ test_that("generated patchwork code contains optimizer-selected measured scales"
     base_size = 7
   )
   expect_match(code, "scale_plot\\(p1, 0.6, 0.8")
+  expect_silent(parse(text = code))
+})
+
+test_that("generated code safely references non-syntactic plot identifiers", {
+  code <- plotfit:::format_patchwork_code(
+    plot_ids = "my plot",
+    areas = data.frame(symbol = "1", plot_id = "my plot", t = 1, l = 1, b = 1, r = 1),
+    layout_string = "1", widths = 1, heights = 1,
+    output_style = "design", collect_guides = FALSE, collect_axes = FALSE
+  )
+
+  expect_match(code, 'plots\\[\\["my plot"\\]\\]')
+  expect_silent(parse(text = code))
+})
+
+test_that("nested output falls back to reproducible design code when optimized details require it", {
+  areas <- data.frame(
+    symbol = c("1", "2"), plot_id = c("p1", "p2"),
+    t = c(1, 1), l = c(1, 2), b = c(1, 1), r = c(1, 2)
+  )
+  code <- plotfit:::format_patchwork_code(
+    plot_ids = c("p1", "p2"), areas = areas, layout_string = "12",
+    widths = c(1.5, 0.5), heights = 1,
+    output_style = "nested_patchwork", collect_guides = TRUE, collect_axes = TRUE,
+    page_margin_mm = 4,
+    plot_scales = data.frame(plot_id = c("p1", "p2"), scale_x = c(0.7, 1), scale_y = c(0.8, 1))
+  )
+
+  expect_match(code, "widths = c\\(1.5, 0.5\\)")
+  expect_match(code, 'guides = "collect"', fixed = TRUE)
+  expect_match(code, "scale_plot\\(p1, 0.7, 0.8")
+  expect_match(code, "plot.margin")
   expect_silent(parse(text = code))
 })

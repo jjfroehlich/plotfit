@@ -20,6 +20,22 @@ test_that("generated layout candidates are rectangular and include all plots", {
   }, logical(1))))
 })
 
+test_that("unordered row-band search ranks demanding plots before input order", {
+  plot_ids <- c("small", "medium", "large")
+  frontiers <- list(
+    small = list(preferred_width_mm = 20, preferred_height_mm = 20, min_acceptable_area_mm2 = 400),
+    medium = list(preferred_width_mm = 40, preferred_height_mm = 30, min_acceptable_area_mm2 = 1200),
+    large = list(preferred_width_mm = 80, preferred_height_mm = 60, min_acceptable_area_mm2 = 4800)
+  )
+
+  ordered <- plotfit:::generate_row_band_layouts(plot_ids, frontiers, 4, 4, TRUE)
+  unordered <- plotfit:::generate_row_band_layouts(plot_ids, frontiers, 4, 4, FALSE)
+
+  expect_equal(ordered[[1]]$plot_ids[1], "small")
+  expect_equal(unordered[[1]]$plot_ids[1], "large")
+  expect_setequal(unordered[[1]]$plot_ids, plot_ids)
+})
+
 test_that("overfit compact spacer layout is not generated for eight plot page", {
   plot_ids <- paste0("p", seq_len(8))
   frontiers <- lapply(plot_ids, function(plot_id) {

@@ -56,7 +56,7 @@ draw_layout_pages(result)
 \item{max_pages}{Maximum number of pages to consider.}
 \item{page_groups}{Optional complete ordered list of plot-ID vectors defining fixed pages. Every plot must appear exactly once; a singleton group isolates that plot on its own page.}
 \item{multipage_penalty}{Penalty added for each additional page.}
-\item{keep_plot_order}{Whether to prioritize order-preserving layouts. Version 1 still prioritizes ordered candidates.}
+\item{keep_plot_order}{Whether to preserve input order in page assignments and row-band layouts. When false, demand-ranked alternatives are considered.}
 \item{allow_empty_cells}{Whether empty \code{#} cells may appear in design strings. Version 1 may use them for editable rectangular designs.}
 \item{collect_guides, collect_axes}{Whether to ask patchwork to collect guides or axes. Defaults keep guides and axes unchanged.}
 \item{device}{Measurement device, either \code{"pdf"} or \code{"cairo_pdf"}.}
@@ -66,7 +66,7 @@ draw_layout_pages(result)
 \item{search_timeout_seconds}{Soft candidate-search time limit in seconds. The current candidate is always allowed to finish.}
 \item{early_stop_patience}{Number of candidates without lexicographic improvement before stopping, once enough hard-feasible candidates have been found.}
 \item{return_candidates}{Number of top scored candidates to retain in the result.}
-\item{output_style}{Code style for editable output. \code{"design"} is the canonical reproducible style.}
+\item{output_style}{Code style for editable output. \code{"design"} is the canonical reproducible style. Nested output falls back to design code when spans, unequal weights, inner scaling, collection, or margins cannot be reproduced exactly by a simple nested expression.}
 \item{layout_engine}{Output engine. \code{"patchwork"} returns editable patchwork pages by default for compatibility; \code{"grid"} returns exact grid grobs using physical row and column sizes and is recommended for final PDF rendering.}
 \item{validation_level}{Final validation level. \code{"layout"} reuses selected physical diagnostics; \code{"render"} draws selected pages on a temporary PDF-like device.}
 \item{max_empty_fraction}{Preferred maximum fraction of empty layout cells before soft penalties and warnings are added.}

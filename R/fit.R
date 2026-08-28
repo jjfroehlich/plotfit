@@ -87,6 +87,7 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     effective_panel$effective_panel_height_mm,
     preferences$min_panel_width_mm,
     preferences$min_panel_height_mm,
+    preferences$min_panel_area_mm2,
     preferences
   )
   facet_loss <- estimate_facet_loss(
@@ -162,6 +163,7 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     axis_gaps$y_label_violation_mm,
     panel_loss$panel_width_violation_mm,
     panel_loss$panel_height_violation_mm,
+    panel_loss$panel_area_violation_mm,
     facet_loss$facet_panel_width_violation_mm,
     facet_loss$facet_panel_height_violation_mm,
     footprint_width_violation_mm,
@@ -208,6 +210,7 @@ evaluate_plot_fit <- function(profile, width_mm, height_mm, preferences) {
     y_label_violation_mm = axis_gaps$y_label_violation_mm,
     panel_width_violation_mm = panel_loss$panel_width_violation_mm,
     panel_height_violation_mm = panel_loss$panel_height_violation_mm,
+    panel_area_violation_mm = panel_loss$panel_area_violation_mm,
     facet_panel_width_violation_mm = facet_loss$facet_panel_width_violation_mm,
     facet_panel_height_violation_mm = facet_loss$facet_panel_height_violation_mm,
     footprint_width_violation_mm = footprint_width_violation_mm,
@@ -641,18 +644,24 @@ estimate_panel_minimum_loss <- function(
     panel_height_mm,
     min_panel_width_mm,
     min_panel_height_mm,
+    min_panel_area_mm2,
     preferences) {
 
   panel_width_violation_mm <- max(0, min_panel_width_mm - panel_width_mm)
   panel_height_violation_mm <- max(0, min_panel_height_mm - panel_height_mm)
+  panel_area_violation_mm <- max(
+    0,
+    sqrt(min_panel_area_mm2) - sqrt(max(0, panel_width_mm * panel_height_mm))
+  )
 
   panel_minimum_loss <- preferences$hard_panel_penalty *
-    (panel_width_violation_mm^2 + panel_height_violation_mm^2)
+    (panel_width_violation_mm^2 + panel_height_violation_mm^2 + panel_area_violation_mm^2)
   hard_loss <- panel_minimum_loss
 
   list(
     panel_width_violation_mm = panel_width_violation_mm,
     panel_height_violation_mm = panel_height_violation_mm,
+    panel_area_violation_mm = panel_area_violation_mm,
     panel_minimum_loss = panel_minimum_loss,
     hard_loss = hard_loss
   )

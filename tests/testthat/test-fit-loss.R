@@ -70,6 +70,31 @@ test_that("effective panel size reports wasted area for fixed-aspect panels", {
   expect_equal(square_panel$unused_panel_area_mm2, 0)
 })
 
+test_that("minimum panel area contributes an independent physical violation", {
+  preferences <- list(hard_panel_penalty = 1000)
+  roomy_shape_small_area <- plotfit:::estimate_panel_minimum_loss(
+    panel_width_mm = 25,
+    panel_height_mm = 25,
+    min_panel_width_mm = 20,
+    min_panel_height_mm = 20,
+    min_panel_area_mm2 = 900,
+    preferences = preferences
+  )
+  sufficient_area <- plotfit:::estimate_panel_minimum_loss(
+    panel_width_mm = 30,
+    panel_height_mm = 30,
+    min_panel_width_mm = 20,
+    min_panel_height_mm = 20,
+    min_panel_area_mm2 = 900,
+    preferences = preferences
+  )
+
+  expect_gt(roomy_shape_small_area$panel_area_violation_mm, 0)
+  expect_gt(roomy_shape_small_area$hard_loss, 0)
+  expect_equal(sufficient_area$panel_area_violation_mm, 0)
+  expect_equal(sufficient_area$hard_loss, 0)
+})
+
 test_that("gtable sizing resolves panel area at an allocated physical size", {
   device_state <- plotfit:::open_measurement_device(
     device = "pdf",

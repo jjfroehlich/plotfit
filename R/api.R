@@ -76,6 +76,10 @@ suggest_patchwork_layout <- function(
     validation_level = validation_level,
     max_empty_fraction = max_empty_fraction
   )
+  if (!is.logical(keep_plot_order) || length(keep_plot_order) != 1 || is.na(keep_plot_order)) {
+    stop("`keep_plot_order` must be TRUE or FALSE.", call. = FALSE)
+  }
+  preferences$keep_plot_order <- keep_plot_order
   preferences$verbose <- verbose
 
   plots <- normalize_plot_list(plots, plot_names)
@@ -86,9 +90,6 @@ suggest_patchwork_layout <- function(
     max_pages = preferences$max_pages
   )
 
-  if (!keep_plot_order) {
-    warning("`keep_plot_order = FALSE` is accepted but the current search still prioritizes order-preserving candidates.")
-  }
   if (!allow_empty_cells) {
     warning("`allow_empty_cells = FALSE` is accepted but the current search may still use empty cells when needed for rectangular editable designs.")
   }
@@ -239,9 +240,11 @@ suggest_patchwork_layout <- function(
       min_label_gap_mm = preferences$min_label_gap_mm,
       min_panel_width_mm = preferences$min_panel_width_mm,
       min_panel_height_mm = preferences$min_panel_height_mm,
+      min_panel_area_mm2 = preferences$min_panel_area_mm2,
       allow_multipage = preferences$allow_multipage,
       max_pages = preferences$max_pages,
       page_groups = preferences$page_groups,
+      keep_plot_order = preferences$keep_plot_order,
       search_mode = preferences$search_mode,
       search_budget = preferences$search_budget,
       search_timeout_seconds = preferences$search_timeout_seconds,
@@ -323,14 +326,21 @@ validate_layout_inputs <- function(
     validation_level = c("layout", "render"),
     max_empty_fraction = 0.25) {
 
-  if (!is.numeric(page_width_in) || length(page_width_in) != 1 || page_width_in <= 0) {
+  if (!is.numeric(page_width_in) || length(page_width_in) != 1 ||
+      !is.finite(page_width_in) || page_width_in <= 0) {
     stop("`page_width_in` must be a positive number.", call. = FALSE)
   }
-  if (!is.numeric(page_height_in) || length(page_height_in) != 1 || page_height_in <= 0) {
+  if (!is.numeric(page_height_in) || length(page_height_in) != 1 ||
+      !is.finite(page_height_in) || page_height_in <= 0) {
     stop("`page_height_in` must be a positive number.", call. = FALSE)
   }
-  if (!is.numeric(page_margin_mm) || length(page_margin_mm) != 1 || page_margin_mm < 0) {
+  if (!is.numeric(page_margin_mm) || length(page_margin_mm) != 1 ||
+      !is.finite(page_margin_mm) || page_margin_mm < 0) {
     stop("`page_margin_mm` must be a non-negative number.", call. = FALSE)
+  }
+  if (page_width_in * 25.4 <= 2 * page_margin_mm ||
+      page_height_in * 25.4 <= 2 * page_margin_mm) {
+    stop("`page_margin_mm` must leave positive width and height inside the page.", call. = FALSE)
   }
   if (!is.numeric(base_size) || length(base_size) != 1 || base_size <= 0) {
     stop("`base_size` must be a positive number.", call. = FALSE)
@@ -389,8 +399,14 @@ validate_layout_inputs <- function(
     target_label_gap_mm <- 1.5 * min_label_gap_mm
   }
 
-  if (min_panel_width_mm <= 0 || min_panel_height_mm <= 0 || min_panel_area_mm2 <= 0) {
+  panel_limits <- c(min_panel_width_mm, min_panel_height_mm, min_panel_area_mm2)
+  if (!is.numeric(panel_limits) || length(panel_limits) != 3 ||
+      any(!is.finite(panel_limits)) || any(panel_limits <= 0)) {
     stop("Panel-size limits must be positive.", call. = FALSE)
+  }
+  if (!is.numeric(target_label_gap_mm) || length(target_label_gap_mm) != 1 ||
+      !is.finite(target_label_gap_mm) || target_label_gap_mm < min_label_gap_mm) {
+    stop("`target_label_gap_mm` must be finite and at least `min_label_gap_mm`.", call. = FALSE)
   }
 
   list(

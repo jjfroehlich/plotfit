@@ -261,13 +261,19 @@ validate_inner_plot_scale <- function(scale, diagnostic, fit_function = NULL, ma
       fit$inner_footprint_height_violation_mm,
       scalar_or_default(fit$footprint_height_violation_mm, 0)
     )
+    panel_area_violation <- scalar_or_default(fit$panel_area_violation_mm, 0)
     if (is.finite(footprint_width_violation) && footprint_width_violation <= 0 &&
-        is.finite(footprint_height_violation) && footprint_height_violation <= 0) {
+        is.finite(footprint_height_violation) && footprint_height_violation <= 0 &&
+        is.finite(panel_area_violation) && panel_area_violation <= 0) {
       return(list(scale_x = scale_x, scale_y = scale_y, status = "validated", iterations = iteration))
     }
 
     width_failed <- is.finite(footprint_width_violation) && footprint_width_violation > 0
     height_failed <- is.finite(footprint_height_violation) && footprint_height_violation > 0
+    if (is.finite(panel_area_violation) && panel_area_violation > 0) {
+      width_failed <- TRUE
+      height_failed <- TRUE
+    }
     aspect_constrained <- is.finite(scalar_or_default(fit$target_panel_aspect, NA_real_))
     if (aspect_constrained && (width_failed || height_failed)) {
       width_failed <- TRUE
@@ -444,13 +450,23 @@ format_patchwork_code <- function(
     base_size = 7) {
 
   if (output_style == "nested_patchwork") {
-    nested_code <- format_nested_patchwork_code(plot_ids, areas, layout_string)
+    nested_code <- format_nested_patchwork_code(
+      plot_ids = plot_ids,
+      areas = areas,
+      layout_string = layout_string,
+      widths = widths,
+      heights = heights,
+      collect_guides = collect_guides,
+      collect_axes = collect_axes,
+      page_margin_mm = page_margin_mm,
+      plot_scales = plot_scales
+    )
     if (!is.na(nested_code)) {
       return(nested_code)
     }
   }
 
-  plot_expr <- areas$plot_id
+  plot_expr <- vapply(areas$plot_id, format_plot_code_reference, character(1))
   plot_expr <- paste0("attach_title(", plot_expr, ")")
   scale_helper_needed <- !is.null(plot_scales) &&
     any(plot_scales$scale_x < 0.995 | plot_scales$scale_y < 0.995)
@@ -564,7 +580,35 @@ format_patchwork_code <- function(
   base_code
 }
 
-format_nested_patchwork_code <- function(plot_ids, areas, layout_string) {
+format_plot_code_reference <- function(plot_id) {
+  if (length(plot_id) == 1 && !is.na(plot_id) && identical(make.names(plot_id), plot_id)) {
+    return(plot_id)
+  }
+
+  paste0("plots[[", encodeString(plot_id, quote = "\""), "]]")
+}
+
+format_nested_patchwork_code <- function(
+    plot_ids,
+    areas,
+    layout_string,
+    widths = NULL,
+    heights = NULL,
+    collect_guides = FALSE,
+    collect_axes = FALSE,
+    page_margin_mm = 0,
+    plot_scales = NULL) {
+
+  unit_cells_only <- all(areas$t == areas$b & areas$l == areas$r)
+  equal_widths <- is.null(widths) || length(widths) <= 1 || max(widths) - min(widths) < 1e-8
+  equal_heights <- is.null(heights) || length(heights) <= 1 || max(heights) - min(heights) < 1e-8
+  full_scales <- is.null(plot_scales) || nrow(plot_scales) == 0 ||
+    all(plot_scales$scale_x >= 0.995 & plot_scales$scale_y >= 0.995)
+  if (!unit_cells_only || !equal_widths || !equal_heights || !full_scales ||
+      collect_guides || collect_axes || page_margin_mm > 0) {
+    return(NA_character_)
+  }
+
   layout_lines <- strsplit(trimws(layout_string), "\n", fixed = TRUE)[[1]]
   row_expressions <- character(length(layout_lines))
 
@@ -578,7 +622,7 @@ format_nested_patchwork_code <- function(plot_ids, areas, layout_string) {
         row_plot_ids <- c(row_plot_ids, "p0")
       } else {
         plot_id <- areas$plot_id[areas$symbol == symbol]
-        row_plot_ids <- c(row_plot_ids, plot_id)
+        row_plot_ids <- c(row_plot_ids, format_plot_code_reference(plot_id))
       }
     }
 
@@ -704,6 +748,7 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate, 
         footprint_validation_iterations = 0L,
         panel_width_mm = NA_real_,
         panel_height_mm = NA_real_,
+        panel_area_violation_mm = NA_real_,
         effective_panel_width_mm = NA_real_,
         effective_panel_height_mm = NA_real_,
         unused_panel_area_mm2 = NA_real_,
@@ -751,6 +796,10 @@ make_plot_diagnostics <- function(profiles, frontier_summaries, best_candidate, 
       min_y_label_gap_mm_at_selected_size = selected$min_y_label_gap_mm[1],
       panel_width_mm_at_selected_size = selected$panel_width_mm[1],
       panel_height_mm_at_selected_size = selected$panel_height_mm[1],
+      panel_area_violation_mm_at_selected_size = scalar_or_default(
+        selected$panel_area_violation_mm,
+        NA_real_
+      ),
       effective_panel_width_mm_at_selected_size = selected$effective_panel_width_mm[1],
       effective_panel_height_mm_at_selected_size = selected$effective_panel_height_mm[1],
       unused_panel_area_mm2_at_selected_size = selected$unused_panel_area_mm2[1],

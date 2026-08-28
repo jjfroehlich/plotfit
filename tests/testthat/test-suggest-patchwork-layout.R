@@ -54,6 +54,21 @@ test_that("suggest_patchwork_layout grid pages keep editable patchwork artifacts
   expect_equal(nrow(result$plot_diagnostics), 2)
 })
 
+test_that("page margins must leave a positive content area", {
+  plot <- ggplot2::ggplot(mtcars, ggplot2::aes(wt, mpg)) + ggplot2::geom_point()
+
+  expect_error(
+    suggest_patchwork_layout(
+      list(p1 = plot),
+      page_width_in = 1,
+      page_height_in = 1,
+      page_margin_mm = 20,
+      verbose = FALSE
+    ),
+    "must leave positive width and height"
+  )
+})
+
 test_that("suggest_patchwork_layout handles mixed plot families with finite automatic footprints", {
   long_labels <- mtcars
   long_labels$cyl_label <- factor(

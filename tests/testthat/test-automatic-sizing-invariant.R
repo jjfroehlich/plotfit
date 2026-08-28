@@ -151,6 +151,10 @@ test_that("active sizing code contains no geom-category branches", {
   if (!all(file.exists(source_paths))) {
     source_paths <- file.path("..", "..", source_paths)
   }
+  skip_if_not(
+    all(file.exists(source_paths)),
+    "repository sizing sources are not available in the installed package"
+  )
   source_text <- paste(unlist(lapply(source_paths, readLines, warn = FALSE)), collapse = "\n")
   expect_false(grepl("Geom[A-Z]", source_text))
   expect_false(grepl("geom_classes", source_text, fixed = TRUE))
@@ -163,6 +167,10 @@ test_that("permanent structural baseline PDF remains immutable", {
     archive_pdf <- file.path("..", "..", archive_pdf)
     archive_manifest <- file.path("..", "..", archive_manifest)
   }
+  skip_if_not(
+    file.exists(archive_pdf) && file.exists(archive_manifest),
+    "repository-only structural baseline is excluded from source packages"
+  )
   expect_true(file.exists(archive_pdf))
   expect_true(file.exists(archive_manifest))
   expect_equal(
